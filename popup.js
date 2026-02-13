@@ -2,210 +2,145 @@
 
 class PopupManager {
   constructor() {
-    this.currentTab = 'today';
+    this.currentTab = 'practice';
+    this.selectedTag = null;
     this.init();
   }
 
   async init() {
-    // 设置Tab切换
     document.querySelectorAll('.tab-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         this.switchTab(e.target.dataset.tab);
       });
     });
 
-    // 设置按钮事件
     this.setupEventListeners();
-
-    // 加载数据
     await this.loadData();
-    
-    // 每30秒刷新一次
     setInterval(() => this.loadData(), 30000);
   }
 
   setupEventListeners() {
-    // Google Calendar连接
-    document.getElementById('connectCalendar').addEventListener('click', async () => {
-      await this.connectCalendar();
-    });
-
-    // 复习时间设置
-    document.getElementById('reviewTime').addEventListener('change', (e) => {
-      this.saveReviewTime(e.target.value);
-    });
-
-    // 数据管理
-    document.getElementById('exportData').addEventListener('click', () => {
-      this.exportData();
-    });
-
-    document.getElementById('importData').addEventListener('click', () => {
-      this.importData();
-    });
-
-    document.getElementById('clearData').addEventListener('click', () => {
-      this.clearData();
-    });
+    document.getElementById('connectCalendar').addEventListener('click', () => this.connectCalendar());
+    document.getElementById('exportData').addEventListener('click', () => this.exportData());
+    document.getElementById('importData').addEventListener('click', () => this.importData());
+    document.getElementById('clearData').addEventListener('click', () => this.clearData());
   }
 
   switchTab(tabName) {
     this.currentTab = tabName;
-
-    // 更新Tab按钮状态
     document.querySelectorAll('.tab-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.tab === tabName);
     });
-
-    // 更新内容显示
     document.querySelectorAll('.tab-content').forEach(content => {
       content.classList.toggle('active', content.id === `tab-${tabName}`);
     });
+    this.loadTabData(tabName);
+  }
 
-    // 加载对应数据
-    if (tabName === 'today') {
-      this.loadTodayReviews();
-    } else if (tabName === 'done') {
-      this.loadTodayCompleted();
-    } else if (tabName === 'all') {
-      this.loadAllProblems();
+  async loadTabData(tabName) {
+    switch (tabName) {
+      case 'practice': await this.loadTodayPractice(); break;
+      case 'review': await this.loadReviewTab(); break;
+      case 'tags': await this.loadTagsTab(); break;
     }
   }
 
   async loadData() {
     await this.updateStats();
-    if (this.currentTab === 'today') {
-      await this.loadTodayReviews();
-    } else if (this.currentTab === 'done') {
-      await this.loadTodayCompleted();
-    } else if (this.currentTab === 'all') {
-      await this.loadAllProblems();
-    }
+    await this.loadTabData(this.currentTab);
   }
+
+  // ============ 统计面板 ============
 
   async updateStats() {
     try {
-      const response = await chrome.runtime.sendMessage({ action: 'getProblems' });
-      const problems = response.problems || [];
+      const [problemsRes, reviewsRes, completedRes, practiceRes] = await Promise.all([
+        chrome.runtime.sendMessage({ action: 'getProblems' }),
+        chrome.runtime.sendMessage({ action: 'getTodayReviews' }),
+        chrome.runtime.sendMessage({ action: 'getTodayCompleted' }),
+        chrome.runtime.sendMessage({ action: 'getTodayPractice' })
+      ]);
 
-      const todayResponse = await chrome.runtime.sendMessage({ action: 'getTodayReviews' });
-      const todayReviews = todayResponse.reviews || [];
-
-      const todayCompletedResponse = await chrome.runtime.sendMessage({ action: 'getTodayCompleted' });
-      const todayCompleted = todayCompletedResponse.completed || [];
-
-      const allCompleted = problems.filter(p => 
-        p.currentInterval >= p.reviewDates.length
-      ).length;
-
-      document.getElementById('totalProblems').textContent = problems.length;
-      document.getElementById('todayReviews').textContent = todayReviews.length;
-      document.getElementById('todayCompleted').textContent = todayCompleted.length;
-      document.getElementById('completedProblems').textContent = allCompleted;
+      document.getElementById('totalProblems').textContent = (problemsRes.problems || []).length;
+      document.getElementById('todayReviews').textContent = (reviewsRes.reviews || []).length;
+      document.getElementById('todayCompleted').textContent = (completedRes.completed || []).length;
+      document.getElementById('todayPractice').textContent = (practiceRes.practice || []).length;
     } catch (error) {
       console.error('Error updating stats:', error);
     }
   }
 
-  async loadTodayReviews() {
-    try {
-      const response = await chrome.runtime.sendMessage({ action: 'getTodayReviews' });
-      const reviews = response.reviews || [];
+  // ============ 今日刷题 Tab ============
 
-      const container = document.getElementById('todayList');
-      
-      if (reviews.length === 0) {
+  async loadTodayPractice() {
+    try {
+      const [practiceRes, tagStatsRes] = await Promise.all([
+        chrome.runtime.sendMessage({ action: 'getTodayPractice' }),
+        chrome.runtime.sendMessage({ action: 'getTagStats' })
+      ]);
+
+      const practice = practiceRes.practice || [];
+      const tagStats = tagStatsRes.tagStats || [];
+
+      // Tag 统计图
+      this.renderTagStats(tagStats);
+
+      // 刷题列表
+      const container = document.getElementById('practiceList');
+      if (practice.length === 0) {
         container.innerHTML = `
           <div class="empty-state">
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <circle cx="12" cy="12" r="10" stroke-width="2"/>
-              <path d="M12 6v6l4 2" stroke-width="2" stroke-linecap="round"/>
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M9 11l3 3L22 4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" stroke-width="2" stroke-linecap="round"/>
             </svg>
-            <p>今天没有需要复习的题目</p>
-            <small>继续保持！🎉</small>
-          </div>
-        `;
+            <p>今天还没有刷题记录</p>
+            <small>在LeetCode题目页点击"记录刷题"按钮</small>
+          </div>`;
         return;
       }
 
-      container.innerHTML = reviews.map(problem => this.createProblemCard(problem, true)).join('');
+      container.innerHTML = practice
+        .sort((a, b) => b.loggedAt - a.loggedAt)
+        .map(p => this.createPracticeCard(p))
+        .join('');
 
-      // 添加事件监听
-      this.attachProblemCardListeners();
+      this.attachCardListeners();
     } catch (error) {
-      console.error('Error loading today reviews:', error);
+      console.error('Error loading practice:', error);
     }
   }
 
-  async loadTodayCompleted() {
-    try {
-      const response = await chrome.runtime.sendMessage({ action: 'getTodayCompleted' });
-      const completed = response.completed || [];
+  renderTagStats(tagStats) {
+    const section = document.getElementById('tagStatsSection');
+    const chart = document.getElementById('tagStatsChart');
 
-      const container = document.getElementById('doneList');
+    if (tagStats.length === 0) {
+      section.classList.add('hidden');
+      return;
+    }
 
-      if (completed.length === 0) {
-        container.innerHTML = `
-          <div class="empty-state">
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path d="M22 11.08V12a10 10 0 11-5.93-9.14" stroke-width="2" stroke-linecap="round"/>
-              <path d="M22 4L12 14.01l-3-3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            <p>今天还没有完成复习</p>
-            <small>去"今日复习"完成题目吧</small>
+    section.classList.remove('hidden');
+    const maxCount = Math.max(...tagStats.map(t => t.count));
+
+    chart.innerHTML = tagStats.map(({ tag, count }) => {
+      const width = Math.max((count / maxCount) * 100, 15);
+      return `
+        <div class="tag-stat-row">
+          <span class="tag-stat-label">${tag}</span>
+          <div class="tag-stat-bar-wrapper">
+            <div class="tag-stat-bar" style="width:${width}%">${count}</div>
           </div>
-        `;
-        return;
-      }
-
-      container.innerHTML = completed.map(problem => this.createProblemCard(problem, false)).join('');
-      this.attachProblemCardListeners();
-    } catch (error) {
-      console.error('Error loading today completed:', error);
-    }
+        </div>`;
+    }).join('');
   }
 
-  async loadAllProblems() {
-    try {
-      const response = await chrome.runtime.sendMessage({ action: 'getProblems' });
-      const problems = response.problems || [];
-
-      const container = document.getElementById('allList');
-      
-      if (problems.length === 0) {
-        container.innerHTML = `
-          <div class="empty-state">
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path d="M12 5v14M5 12h14" stroke-width="2" stroke-linecap="round"/>
-            </svg>
-            <p>还没有添加任何题目</p>
-            <small>打开LeetCode题目页面，点击浮动按钮添加</small>
-          </div>
-        `;
-        return;
-      }
-
-      // 按添加时间倒序排列
-      problems.sort((a, b) => b.addedAt - a.addedAt);
-
-      container.innerHTML = problems.map(problem => this.createProblemCard(problem, false)).join('');
-
-      // 添加事件监听
-      this.attachProblemCardListeners();
-    } catch (error) {
-      console.error('Error loading all problems:', error);
-    }
-  }
-
-  createProblemCard(problem, isToday) {
-    const nextReview = problem.reviewDates[problem.currentInterval];
-    const nextReviewDate = nextReview ? new Date(nextReview) : null;
-    const isCompleted = problem.currentInterval >= problem.reviewDates.length;
-    const tags = problem.tags || [];
-
+  createPracticeCard(problem) {
+    const tags = (problem.tags || []);
     const tagsHtml = tags.length > 0
-      ? `<div class="problem-tags">${tags.map(tag => `<span class="tag">${tag}</span>`).join('')}</div>`
+      ? `<div class="problem-tags">${tags.map(t => `<span class="tag">${t}</span>`).join('')}</div>`
       : '';
+    const time = new Date(problem.loggedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     return `
       <div class="problem-card" data-slug="${problem.slug}">
@@ -214,28 +149,180 @@ class PopupManager {
             <span class="problem-number">#${problem.number}</span>
             ${problem.title}
           </div>
-          <span class="difficulty ${problem.difficulty.toLowerCase()}">${problem.difficulty}</span>
+          <span class="difficulty ${(problem.difficulty || '').toLowerCase()}">${problem.difficulty}</span>
         </div>
         ${tagsHtml}
         <div class="problem-meta">
-          <span>📅 ${isCompleted ? '已完成所有复习' : `下次: ${nextReviewDate.toLocaleDateString()}`}</span>
-          <span>✅ ${problem.completedReviews.length}/${problem.reviewDates.length}</span>
+          <span>🕐 ${time}</span>
         </div>
         <div class="problem-actions">
-          ${!isCompleted ? `<button class="btn-small btn-done" data-action="done" data-slug="${problem.slug}">完成复习</button>` : ''}
+          <button class="btn-small btn-link" data-action="open" data-url="${problem.url}">打开题目</button>
+        </div>
+      </div>`;
+  }
+
+  // ============ 复习 Tab ============
+
+  async loadReviewTab() {
+    try {
+      const [reviewsRes, completedRes] = await Promise.all([
+        chrome.runtime.sendMessage({ action: 'getTodayReviews' }),
+        chrome.runtime.sendMessage({ action: 'getTodayCompleted' })
+      ]);
+
+      const reviews = reviewsRes.reviews || [];
+      const completed = completedRes.completed || [];
+
+      // 待复习
+      const pendingList = document.getElementById('reviewPendingList');
+      const pendingTitle = document.getElementById('reviewPendingTitle');
+      pendingTitle.textContent = `待复习 (${reviews.length})`;
+
+      if (reviews.length === 0) {
+        pendingList.innerHTML = `<div class="empty-state small"><p>今天没有需要复习的题目</p></div>`;
+      } else {
+        pendingList.innerHTML = reviews.map(p => this.createReviewCard(p, false)).join('');
+      }
+
+      // 已复习
+      const doneList = document.getElementById('reviewDoneList');
+      const doneTitle = document.getElementById('reviewDoneTitle');
+      doneTitle.textContent = `今日已复习 (${completed.length})`;
+
+      if (completed.length === 0) {
+        doneList.innerHTML = `<div class="empty-state small"><p>还没有完成复习</p></div>`;
+      } else {
+        doneList.innerHTML = completed.map(p => this.createReviewCard(p, true)).join('');
+      }
+
+      this.attachCardListeners();
+    } catch (error) {
+      console.error('Error loading reviews:', error);
+    }
+  }
+
+  createReviewCard(problem, isDone) {
+    const tags = (problem.tags || []);
+    const tagsHtml = tags.length > 0
+      ? `<div class="problem-tags">${tags.map(t => `<span class="tag">${t}</span>`).join('')}</div>`
+      : '';
+
+    const nextReview = problem.reviewDates && problem.reviewDates[problem.currentInterval];
+    const isAllDone = problem.currentInterval >= problem.reviewDates.length;
+    const progress = `${problem.completedReviews.length}/${problem.reviewDates.length}`;
+
+    return `
+      <div class="problem-card" data-slug="${problem.slug}">
+        <div class="problem-header">
+          <div class="problem-title">
+            <span class="problem-number">#${problem.number}</span>
+            ${problem.title}
+          </div>
+          <span class="difficulty ${(problem.difficulty || '').toLowerCase()}">${problem.difficulty}</span>
+        </div>
+        ${tagsHtml}
+        <div class="problem-meta">
+          <span>✅ ${progress}</span>
+          <span>📅 ${isAllDone ? '全部完成' : `下次: ${new Date(nextReview).toLocaleDateString()}`}</span>
+        </div>
+        <div class="problem-actions">
+          ${!isDone && !isAllDone ? `<button class="btn-small btn-done" data-action="done" data-slug="${problem.slug}">完成复习</button>` : ''}
           <button class="btn-small btn-link" data-action="open" data-url="${problem.url}">打开题目</button>
           <button class="btn-small btn-delete" data-action="delete" data-slug="${problem.slug}">删除</button>
         </div>
-      </div>
-    `;
+      </div>`;
   }
 
-  attachProblemCardListeners() {
+  // ============ 按标签 Tab ============
+
+  async loadTagsTab() {
+    try {
+      const tagsRes = await chrome.runtime.sendMessage({ action: 'getAllTags' });
+      const tags = tagsRes.tags || [];
+
+      const chipsContainer = document.getElementById('tagFilterChips');
+
+      if (tags.length === 0) {
+        chipsContainer.innerHTML = '<p class="empty-hint">还没有任何标签，添加题目后会自动出现</p>';
+        return;
+      }
+
+      chipsContainer.innerHTML = tags.map(({ tag, count }) => `
+        <button class="tag-chip ${this.selectedTag === tag ? 'active' : ''}" data-tag="${tag}">
+          ${tag} <span class="tag-chip-count">${count}</span>
+        </button>
+      `).join('');
+
+      // Chip点击事件
+      chipsContainer.querySelectorAll('.tag-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          this.selectedTag = chip.dataset.tag;
+          // 更新active状态
+          chipsContainer.querySelectorAll('.tag-chip').forEach(c => c.classList.remove('active'));
+          chip.classList.add('active');
+          this.loadProblemsByTag(chip.dataset.tag);
+        });
+      });
+
+      // 如果有已选tag，加载其题目
+      if (this.selectedTag) {
+        this.loadProblemsByTag(this.selectedTag);
+      }
+    } catch (error) {
+      console.error('Error loading tags:', error);
+    }
+  }
+
+  async loadProblemsByTag(tag) {
+    try {
+      const res = await chrome.runtime.sendMessage({ action: 'getProblemsByTag', tag });
+      const problems = res.problems || [];
+
+      const container = document.getElementById('tagProblemList');
+
+      if (problems.length === 0) {
+        container.innerHTML = `<div class="empty-state small"><p>没有找到"${tag}"标签的题目</p></div>`;
+        return;
+      }
+
+      container.innerHTML = problems.map(p => {
+        const sourceLabel = p.source === 'review' ? '复习中' : '已刷题';
+        const sourceCls = p.source === 'review' ? 'source-review' : 'source-practice';
+        const tags = (p.tags || []);
+        const tagsHtml = tags.length > 0
+          ? `<div class="problem-tags">${tags.map(t => `<span class="tag ${t === tag ? 'tag-highlight' : ''}">${t}</span>`).join('')}</div>`
+          : '';
+
+        return `
+          <div class="problem-card" data-slug="${p.slug}">
+            <div class="problem-header">
+              <div class="problem-title">
+                <span class="problem-number">#${p.number}</span>
+                ${p.title}
+              </div>
+              <span class="source-badge ${sourceCls}">${sourceLabel}</span>
+              <span class="difficulty ${(p.difficulty || '').toLowerCase()}">${p.difficulty}</span>
+            </div>
+            ${tagsHtml}
+            <div class="problem-actions">
+              <button class="btn-small btn-link" data-action="open" data-url="${p.url}">打开题目</button>
+            </div>
+          </div>`;
+      }).join('');
+
+      this.attachCardListeners();
+    } catch (error) {
+      console.error('Error loading problems by tag:', error);
+    }
+  }
+
+  // ============ 通用事件绑定 ============
+
+  attachCardListeners() {
     document.querySelectorAll('[data-action="done"]').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        const slug = btn.dataset.slug;
-        await this.markProblemDone(slug);
+        await this.markProblemDone(btn.dataset.slug);
       });
     });
 
@@ -250,8 +337,7 @@ class PopupManager {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
         if (confirm('确定要删除这道题吗？')) {
-          const slug = btn.dataset.slug;
-          await this.deleteProblem(slug);
+          await this.deleteProblem(btn.dataset.slug);
         }
       });
     });
@@ -259,81 +345,69 @@ class PopupManager {
 
   async markProblemDone(slug) {
     try {
-      await chrome.runtime.sendMessage({
-        action: 'markReviewed',
-        slug: slug
-      });
+      await chrome.runtime.sendMessage({ action: 'markReviewed', slug });
       await this.loadData();
     } catch (error) {
-      console.error('Error marking problem done:', error);
       alert('标记失败: ' + error.message);
     }
   }
 
   async deleteProblem(slug) {
     try {
-      await chrome.runtime.sendMessage({
-        action: 'deleteProblem',
-        slug: slug
-      });
+      await chrome.runtime.sendMessage({ action: 'deleteProblem', slug });
       await this.loadData();
     } catch (error) {
-      console.error('Error deleting problem:', error);
       alert('删除失败: ' + error.message);
     }
   }
 
+  // ============ 设置 ============
+
   async connectCalendar() {
     const btn = document.getElementById('connectCalendar');
     const status = document.getElementById('calendarStatus');
-
     btn.disabled = true;
     btn.textContent = '连接中...';
 
     try {
       const response = await chrome.runtime.sendMessage({ action: 'connectCalendar' });
-      
       if (response.success) {
-        status.textContent = '✅ 已成功连接到Google Calendar';
+        status.textContent = '✅ 已连接';
         status.className = 'status-message success';
         btn.textContent = '已连接';
       } else {
         throw new Error(response.error);
       }
     } catch (error) {
-      console.error('Calendar connection failed:', error);
-      status.textContent = '❌ 连接失败: ' + error.message;
+      status.textContent = '❌ ' + error.message;
       status.className = 'status-message error';
       btn.disabled = false;
-      btn.textContent = '重试连接';
+      btn.textContent = '重试';
     }
-
     status.classList.remove('hidden');
-  }
-
-  async saveReviewTime(time) {
-    await chrome.storage.local.set({ reviewTime: time });
-    console.log('Review time saved:', time);
   }
 
   async exportData() {
     try {
-      const response = await chrome.runtime.sendMessage({ action: 'getProblems' });
-      const problems = response.problems || [];
+      const [problemsRes, practiceRes] = await Promise.all([
+        chrome.runtime.sendMessage({ action: 'getProblems' }),
+        chrome.runtime.sendMessage({ action: 'getTodayPractice' })
+      ]);
 
-      const dataStr = JSON.stringify(problems, null, 2);
-      const dataBlob = new Blob([dataStr], { type: 'application/json' });
-      const url = URL.createObjectURL(dataBlob);
-      
+      const data = {
+        problems: problemsRes.problems || [],
+        practiceLog: practiceRes.practice || [],
+        exportedAt: Date.now()
+      };
+
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `leetcode-reviews-${Date.now()}.json`;
+      a.download = `leetcode-data-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
-      
       URL.revokeObjectURL(url);
-      alert('数据导出成功！');
     } catch (error) {
-      console.error('Export failed:', error);
       alert('导出失败: ' + error.message);
     }
   }
@@ -342,41 +416,37 @@ class PopupManager {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
-    
     input.onchange = async (e) => {
       try {
-        const file = e.target.files[0];
-        const text = await file.text();
-        const problems = JSON.parse(text);
-        
-        // 保存导入的数据
-        const problemsMap = {};
-        problems.forEach(p => {
-          problemsMap[p.slug] = p;
-        });
-        
-        await chrome.storage.local.set({ problems: problemsMap });
+        const text = await e.target.files[0].text();
+        const data = JSON.parse(text);
+
+        if (data.problems) {
+          const problemsMap = {};
+          (Array.isArray(data.problems) ? data.problems : Object.values(data.problems))
+            .forEach(p => { problemsMap[p.slug] = p; });
+          await chrome.storage.local.set({ problems: problemsMap });
+        }
+        if (data.practiceLog) {
+          await chrome.storage.local.set({ practiceLog: data.practiceLog });
+        }
+
         await this.loadData();
-        alert('数据导入成功！');
+        alert('导入成功！');
       } catch (error) {
-        console.error('Import failed:', error);
         alert('导入失败: ' + error.message);
       }
     };
-    
     input.click();
   }
 
   async clearData() {
-    if (confirm('确定要清空所有数据吗？此操作不可恢复！')) {
-      if (confirm('再次确认：真的要删除所有复习记录吗？')) {
-        await chrome.storage.local.set({ problems: {} });
-        await this.loadData();
-        alert('所有数据已清空');
-      }
+    if (confirm('确定清空所有数据？此操作不可恢复！')) {
+      await chrome.storage.local.set({ problems: {}, practiceLog: [] });
+      await this.loadData();
+      alert('已清空');
     }
   }
 }
 
-// 初始化
 new PopupManager();

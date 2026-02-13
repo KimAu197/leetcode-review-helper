@@ -162,12 +162,24 @@ class LeetCodeHelper {
     container.id = 'leetcode-sr-container';
     container.className = 'leetcode-sr-floating';
 
-    // 主按钮
+    // 记录刷题按钮（只记录，不加复习）
+    const logButton = document.createElement('button');
+    logButton.id = 'leetcode-sr-log-btn';
+    logButton.className = 'leetcode-sr-main-btn leetcode-sr-log';
+    logButton.innerHTML = `
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <path d="M9 11l3 3L22 4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>记录刷题</span>
+    `;
+
+    // 加入复习按钮
     const mainButton = document.createElement('button');
     mainButton.id = 'leetcode-sr-button';
     mainButton.className = 'leetcode-sr-main-btn';
     mainButton.innerHTML = `
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
         <path d="M12 5v14M5 12h14" stroke-width="2" stroke-linecap="round"/>
       </svg>
       <span>加入复习</span>
@@ -178,11 +190,13 @@ class LeetCodeHelper {
     statusIndicator.id = 'leetcode-sr-status';
     statusIndicator.className = 'leetcode-sr-status hidden';
 
+    container.appendChild(logButton);
     container.appendChild(mainButton);
     container.appendChild(statusIndicator);
     document.body.appendChild(container);
 
     // 按钮点击事件
+    logButton.addEventListener('click', () => this.handleLogPractice());
     mainButton.addEventListener('click', () => this.handleAddProblem());
 
     // 检查这道题是否已经添加
@@ -258,6 +272,54 @@ class LeetCodeHelper {
       window.location.reload();
     });
     document.body.appendChild(prompt);
+  }
+
+  async handleLogPractice() {
+    const logButton = document.getElementById('leetcode-sr-log-btn');
+
+    if (logButton.classList.contains('adding') || logButton.classList.contains('added')) return;
+
+    logButton.classList.add('adding');
+    logButton.innerHTML = `<div class="spinner"></div><span>记录中...</span>`;
+
+    try {
+      const response = await this.safeSendMessage({
+        action: 'logPractice',
+        problem: this.problemInfo
+      });
+
+      if (!response) {
+        logButton.classList.remove('adding');
+        logButton.innerHTML = `<span>重试</span>`;
+        return;
+      }
+
+      if (response.success) {
+        logButton.classList.remove('adding');
+        logButton.classList.add('added');
+        logButton.innerHTML = `
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M5 13l4 4L19 7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>已记录</span>
+        `;
+        this.showNotification('已记录今日刷题！', 'success');
+      } else {
+        this.showNotification(response.error || '记录失败', 'info');
+        logButton.classList.remove('adding');
+        logButton.classList.add('added');
+        logButton.innerHTML = `
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M5 13l4 4L19 7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>已记录</span>
+        `;
+      }
+    } catch (error) {
+      logButton.classList.remove('adding');
+      logButton.innerHTML = `<span>重试</span>`;
+      this.showNotification('记录失败: ' + error.message, 'error');
+    }
   }
 
   async handleAddProblem() {

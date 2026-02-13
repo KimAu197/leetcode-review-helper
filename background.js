@@ -39,6 +39,31 @@ class SpacedRepetitionManager {
           sendResponse(addResult);
           break;
         }
+        case 'logPractice': {
+          const logResult = await this.logPractice(request.problem);
+          sendResponse(logResult);
+          break;
+        }
+        case 'getTodayPractice': {
+          const practice = await this.getTodayPractice();
+          sendResponse({ practice });
+          break;
+        }
+        case 'getTagStats': {
+          const tagStats = await this.getTagStats();
+          sendResponse({ tagStats });
+          break;
+        }
+        case 'getAllTags': {
+          const tags = await this.getAllTags();
+          sendResponse({ tags });
+          break;
+        }
+        case 'getProblemsByTag': {
+          const tagProblems = await this.getProblemsByTag(request.tag);
+          sendResponse({ problems: tagProblems });
+          break;
+        }
         case 'checkProblem': {
           const status = await this.checkProblemStatus(request.slug);
           sendResponse(status);
@@ -86,6 +111,126 @@ class SpacedRepetitionManager {
       console.error('Error handling message:', error);
       sendResponse({ success: false, error: error.message });
     }
+  }
+
+  // ============ 刷题记录（不加入复习计划） ============
+
+  async logPractice(problemInfo) {
+    try {
+      const storageResult = await chrome.storage.local.get('practiceLog');
+      const practiceLog = storageResult.practiceLog || [];
+
+      // 检查今天是否已记录同一题
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayTs = today.getTime();
+
+      const alreadyLogged = practiceLog.some(
+        p => p.slug === problemInfo.slug && p.loggedAt >= todayTs
+      );
+
+      if (alreadyLogged) {
+        return { success: false, error: '今天已经记录过这道题了' };
+      }
+
+      practiceLog.push({
+        ...problemInfo,
+        loggedAt: Date.now()
+      });
+
+      await chrome.storage.local.set({ practiceLog });
+      console.log('📝 Practice logged:', problemInfo.slug);
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error logging practice:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async getTodayPractice() {
+    const storageResult = await chrome.storage.local.get('practiceLog');
+    const practiceLog = storageResult.practiceLog || [];
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayTs = today.getTime();
+
+    return practiceLog.filter(p => p.loggedAt >= todayTs);
+  }
+
+  async getTagStats() {
+    // 统计今日刷题 + 复习完成的 tag 分布
+    const todayPractice = await this.getTodayPractice();
+    const todayCompleted = await this.getTodayCompleted();
+
+    const allToday = [...todayPractice, ...todayCompleted];
+    const tagCounts = {};
+
+    allToday.forEach(problem => {
+      const tags = problem.tags || [];
+      tags.forEach(tag => {
+        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+      });
+    });
+
+    // 转换为排序数组
+    return Object.entries(tagCounts)
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  async getAllTags() {
+    // 从所有题目（复习 + 刷题记录）中收集所有 tag
+    const problems = await this.getAllProblems();
+    const storageResult = await chrome.storage.local.get('practiceLog');
+    const practiceLog = storageResult.practiceLog || [];
+
+    const tagMap = {}; // tag -> { count, problems[] }
+
+    const addToTagMap = (problem) => {
+      const tags = problem.tags || [];
+      tags.forEach(tag => {
+        if (!tagMap[tag]) {
+          tagMap[tag] = { count: 0, problems: [] };
+        }
+        // 避免重复
+        if (!tagMap[tag].problems.some(p => p.slug === problem.slug)) {
+          tagMap[tag].count++;
+          tagMap[tag].problems.push(problem);
+        }
+      });
+    };
+
+    problems.forEach(addToTagMap);
+    practiceLog.forEach(addToTagMap);
+
+    return Object.entries(tagMap)
+      .map(([tag, data]) => ({ tag, count: data.count }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  async getProblemsByTag(tag) {
+    const problems = await this.getAllProblems();
+    const storageResult = await chrome.storage.local.get('practiceLog');
+    const practiceLog = storageResult.practiceLog || [];
+
+    const seen = new Set();
+    const result = [];
+
+    const addIfTagged = (problem, source) => {
+      if (seen.has(problem.slug)) return;
+      const tags = problem.tags || [];
+      if (tags.includes(tag)) {
+        seen.add(problem.slug);
+        result.push({ ...problem, source });
+      }
+    };
+
+    problems.forEach(p => addIfTagged(p, 'review'));
+    practiceLog.forEach(p => addIfTagged(p, 'practice'));
+
+    return result;
   }
 
   // ============ 核心功能：题目管理 ============
@@ -429,9 +574,12 @@ class SpacedRepetitionManager {
     console.log('LeetCode Spaced Repetition installed!');
 
     // 初始化存储
-    const storageResult = await chrome.storage.local.get('problems');
+    const storageResult = await chrome.storage.local.get(['problems', 'practiceLog']);
     if (!storageResult.problems) {
       await chrome.storage.local.set({ problems: {} });
+    }
+    if (!storageResult.practiceLog) {
+      await chrome.storage.local.set({ practiceLog: [] });
     }
 
     // 立即检查今日复习
