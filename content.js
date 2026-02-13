@@ -4,11 +4,11 @@ class LeetCodeHelper {
   constructor() {
     this.floatingButton = null;
     this.problemInfo = null;
+    this.reviewQueue = [];
     this.init();
   }
 
   init() {
-    // 等待页面加载完成
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', () => this.setup());
     } else {
@@ -17,9 +17,74 @@ class LeetCodeHelper {
   }
 
   setup() {
+    this.currentUrl = window.location.href;
     this.extractProblemInfo();
     this.createFloatingButton();
+    this.createQueuePanel();
     this.setupMessageListener();
+    this.watchUrlChange();
+  }
+
+  // 监听SPA路由变化（LeetCode切换题目不会刷新页面）
+  watchUrlChange() {
+    let lastUrl = this.currentUrl;
+
+    const check = () => {
+      const url = window.location.href;
+      if (url !== lastUrl) {
+        lastUrl = url;
+        // URL 变了，等DOM更新后重新初始化
+        setTimeout(() => this.onNavigate(), 800);
+      }
+    };
+
+    // 轮询检测 URL 变化
+    setInterval(check, 500);
+
+    // 也监听 popstate（浏览器前进后退）
+    window.addEventListener('popstate', () => setTimeout(() => this.onNavigate(), 800));
+  }
+
+  onNavigate() {
+    if (!window.location.pathname.includes('/problems/')) return;
+
+    this.currentUrl = window.location.href;
+    this.extractProblemInfo();
+    this.resetButtons();
+    this.checkProblemStatus();
+    this.refreshQueue();
+
+    console.log('🔄 Navigated to:', this.problemInfo.slug);
+  }
+
+  resetButtons() {
+    const logBtn = document.getElementById('leetcode-sr-log-btn');
+    const mainBtn = document.getElementById('leetcode-sr-button');
+    const status = document.getElementById('leetcode-sr-status');
+
+    if (logBtn) {
+      logBtn.classList.remove('added', 'adding');
+      logBtn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M9 11l3 3L22 4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <span>记录</span>`;
+    }
+
+    if (mainBtn) {
+      mainBtn.classList.remove('added', 'adding');
+      mainBtn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M12 5v14M5 12h14" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <span>复习</span>`;
+    }
+
+    if (status) {
+      status.classList.add('hidden');
+      status.textContent = '';
+    }
   }
 
   extractProblemInfo() {
@@ -167,11 +232,11 @@ class LeetCodeHelper {
     logButton.id = 'leetcode-sr-log-btn';
     logButton.className = 'leetcode-sr-main-btn leetcode-sr-log';
     logButton.innerHTML = `
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
         <path d="M9 11l3 3L22 4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" stroke-width="2" stroke-linecap="round"/>
       </svg>
-      <span>记录刷题</span>
+      <span>记录</span>
     `;
 
     // 加入复习按钮
@@ -179,10 +244,10 @@ class LeetCodeHelper {
     mainButton.id = 'leetcode-sr-button';
     mainButton.className = 'leetcode-sr-main-btn';
     mainButton.innerHTML = `
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
         <path d="M12 5v14M5 12h14" stroke-width="2" stroke-linecap="round"/>
       </svg>
-      <span>加入复习</span>
+      <span>复习</span>
     `;
 
     // 状态指示器
@@ -274,10 +339,72 @@ class LeetCodeHelper {
     document.body.appendChild(prompt);
   }
 
+  // 显示可选的完成时间+心得输入弹窗
+  showInputDialog(mode) {
+    // mode: 'log' | 'review'
+    return new Promise((resolve) => {
+      // 移除已有弹窗
+      const existing = document.getElementById('leetcode-sr-dialog');
+      if (existing) existing.remove();
+
+      const overlay = document.createElement('div');
+      overlay.id = 'leetcode-sr-dialog';
+      overlay.className = 'leetcode-sr-overlay';
+
+      const title = mode === 'log' ? '记录刷题' : '加入复习';
+      overlay.innerHTML = `
+        <div class="leetcode-sr-dialog-box">
+          <div class="leetcode-sr-dialog-title">${title} — ${this.problemInfo.number}. ${this.problemInfo.title}</div>
+          <div class="leetcode-sr-dialog-row">
+            <label>⏱ 用时 (分钟)</label>
+            <input type="number" id="sr-duration-input" min="1" max="999" placeholder="可选">
+          </div>
+          <div class="leetcode-sr-dialog-row">
+            <label>📝 心得</label>
+            <textarea id="sr-notes-input" rows="3" placeholder="可选，记录思路或注意事项..."></textarea>
+          </div>
+          <div class="leetcode-sr-dialog-actions">
+            <button id="sr-dialog-cancel" class="sr-dialog-btn sr-btn-cancel">取消</button>
+            <button id="sr-dialog-skip" class="sr-dialog-btn sr-btn-skip">跳过，直接${mode === 'log' ? '记录' : '添加'}</button>
+            <button id="sr-dialog-confirm" class="sr-dialog-btn sr-btn-confirm">确定</button>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(overlay);
+
+      // 聚焦到第一个输入框
+      setTimeout(() => document.getElementById('sr-duration-input')?.focus(), 100);
+
+      const getValues = () => {
+        const duration = parseInt(document.getElementById('sr-duration-input')?.value) || null;
+        const notes = document.getElementById('sr-notes-input')?.value?.trim() || null;
+        return { duration, notes };
+      };
+
+      const cleanup = () => overlay.remove();
+
+      document.getElementById('sr-dialog-cancel').addEventListener('click', () => { cleanup(); resolve(null); });
+      document.getElementById('sr-dialog-skip').addEventListener('click', () => { cleanup(); resolve({ duration: null, notes: null }); });
+      document.getElementById('sr-dialog-confirm').addEventListener('click', () => { const v = getValues(); cleanup(); resolve(v); });
+
+      // ESC 关闭
+      const onKey = (e) => { if (e.key === 'Escape') { cleanup(); resolve(null); document.removeEventListener('keydown', onKey); } };
+      document.addEventListener('keydown', onKey);
+
+      // 点击蒙层关闭
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) { cleanup(); resolve(null); } });
+    });
+  }
+
   async handleLogPractice() {
     const logButton = document.getElementById('leetcode-sr-log-btn');
 
     if (logButton.classList.contains('adding') || logButton.classList.contains('added')) return;
+
+    // 弹出可选输入框
+    const extra = await this.showInputDialog('log');
+    if (extra === null) return; // 用户取消
 
     logButton.classList.add('adding');
     logButton.innerHTML = `<div class="spinner"></div><span>记录中...</span>`;
@@ -285,7 +412,7 @@ class LeetCodeHelper {
     try {
       const response = await this.safeSendMessage({
         action: 'logPractice',
-        problem: this.problemInfo
+        problem: { ...this.problemInfo, duration: extra.duration, notes: extra.notes }
       });
 
       if (!response) {
@@ -298,7 +425,7 @@ class LeetCodeHelper {
         logButton.classList.remove('adding');
         logButton.classList.add('added');
         logButton.innerHTML = `
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
             <path d="M5 13l4 4L19 7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           <span>已记录</span>
@@ -309,7 +436,7 @@ class LeetCodeHelper {
         logButton.classList.remove('adding');
         logButton.classList.add('added');
         logButton.innerHTML = `
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
             <path d="M5 13l4 4L19 7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           <span>已记录</span>
@@ -329,6 +456,10 @@ class LeetCodeHelper {
     // 防止重复点击
     if (mainButton.classList.contains('adding')) return;
 
+    // 弹出可选输入框
+    const extra = await this.showInputDialog('review');
+    if (extra === null) return; // 用户取消
+
     mainButton.classList.add('adding');
     mainButton.innerHTML = `
       <div class="spinner"></div>
@@ -338,13 +469,13 @@ class LeetCodeHelper {
     try {
       const response = await this.safeSendMessage({
         action: 'addProblem',
-        problem: this.problemInfo
+        problem: { ...this.problemInfo, duration: extra.duration, notes: extra.notes }
       });
 
       if (!response) {
         mainButton.classList.remove('adding');
         mainButton.innerHTML = `
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
             <path d="M12 5v14M5 12h14" stroke-width="2" stroke-linecap="round"/>
           </svg>
           <span>重试</span>
@@ -356,22 +487,25 @@ class LeetCodeHelper {
         mainButton.classList.remove('adding');
         mainButton.classList.add('added');
         mainButton.innerHTML = `
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
             <path d="M5 13l4 4L19 7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           <span>已加入</span>
         `;
 
-        statusIndicator.textContent = `已安排 ${response.reviewDates.length} 次复习`;
+        statusIndicator.textContent = `首次复习: ${response.intervalDays}天后`;
         statusIndicator.classList.remove('hidden');
 
-        // 3秒后显示下次复习时间
+        // 3秒后显示具体日期
         setTimeout(() => {
-          if (response.reviewDates.length > 0) {
-            const nextDate = new Date(response.reviewDates[0]);
+          if (response.nextReviewDate) {
+            const nextDate = new Date(response.nextReviewDate);
             statusIndicator.textContent = `下次复习: ${nextDate.toLocaleDateString()}`;
           }
         }, 3000);
+
+        // 刷新队列
+        this.refreshQueue();
 
         // 显示通知
         this.showNotification('✅ 已添加到复习计划！', 'success');
@@ -382,12 +516,166 @@ class LeetCodeHelper {
       console.error('添加题目失败:', error);
       mainButton.classList.remove('adding');
       mainButton.innerHTML = `
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
           <path d="M12 5v14M5 12h14" stroke-width="2" stroke-linecap="round"/>
         </svg>
         <span>重试</span>
       `;
       this.showNotification('❌ 添加失败: ' + error.message, 'error');
+    }
+  }
+
+  // ============ 复习队列面板（游戏任务风格） ============
+
+  async createQueuePanel() {
+    const panel = document.createElement('div');
+    panel.id = 'leetcode-sr-queue';
+    panel.className = 'sr-queue-panel sr-queue-collapsed';
+    panel.innerHTML = `
+      <div class="sr-queue-header" id="sr-queue-header">
+        <span class="sr-queue-icon">📋</span>
+        <span class="sr-queue-htitle">今日复习</span>
+        <span class="sr-queue-badge" id="sr-queue-badge">0</span>
+        <span class="sr-queue-toggle" id="sr-queue-toggle">▸</span>
+      </div>
+      <div class="sr-queue-body" id="sr-queue-body">
+        <div class="sr-queue-progress" id="sr-queue-progress"></div>
+        <div class="sr-queue-list" id="sr-queue-list"></div>
+        <div class="sr-queue-footer">
+          <button class="sr-queue-next-btn" id="sr-queue-next">下一题 →</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(panel);
+
+    document.getElementById('sr-queue-header').addEventListener('click', () => {
+      panel.classList.toggle('sr-queue-collapsed');
+      const toggle = document.getElementById('sr-queue-toggle');
+      toggle.textContent = panel.classList.contains('sr-queue-collapsed') ? '▸' : '▾';
+    });
+
+    document.getElementById('sr-queue-next').addEventListener('click', () => this.goToNextReview());
+
+    await this.refreshQueue();
+    setInterval(() => this.refreshQueue(), 60000);
+  }
+
+  async refreshQueue() {
+    try {
+      const response = await this.safeSendMessage({ action: 'getReviewQueue' });
+      if (!response || !response.queue) return;
+      this.reviewQueue = response.queue;
+      this.renderQueue();
+    } catch (e) {
+      console.warn('Failed to refresh queue:', e);
+    }
+  }
+
+  renderQueue() {
+    const queue = this.reviewQueue || [];
+    const currentSlug = this.problemInfo?.slug;
+
+    // Badge
+    const badge = document.getElementById('sr-queue-badge');
+    if (badge) badge.textContent = queue.length;
+
+    // Hide panel entirely if no reviews
+    const panel = document.getElementById('leetcode-sr-queue');
+    if (panel) panel.style.display = queue.length === 0 ? 'none' : '';
+
+    // Progress — count today completed from completedReviews
+    const progress = document.getElementById('sr-queue-progress');
+    if (progress && queue.length > 0) {
+      progress.innerHTML = `
+        <span class="sr-progress-text">📋 ${queue.length} 道待复习</span>
+      `;
+    }
+
+    // List
+    const list = document.getElementById('sr-queue-list');
+    if (!list) return;
+
+    if (queue.length === 0) {
+      list.innerHTML = '<div class="sr-queue-empty">🎉 今日复习全部完成！</div>';
+      return;
+    }
+
+    list.innerHTML = queue.map(p => {
+      const isCurrent = p.slug === currentSlug;
+      const priClass = p.priorityScore >= 40 ? 'high' : p.priorityScore >= 20 ? 'med' : 'low';
+      const diffClass = (p.difficulty || '').toLowerCase();
+      const diffLabel = { easy: 'E', medium: 'M', hard: 'H' }[diffClass] || '?';
+
+      return `
+        <div class="sr-queue-item ${isCurrent ? 'sr-current' : ''}" data-slug="${p.slug}">
+          <div class="sr-queue-item-main">
+            <span class="sr-queue-pri ${priClass}"></span>
+            <span class="sr-queue-item-title">#${p.number} ${p.title}</span>
+            <span class="sr-queue-item-diff ${diffClass}">${diffLabel}</span>
+          </div>
+          ${isCurrent ? `
+            <div class="sr-queue-rating">
+              <button class="sr-rate forgot" data-slug="${p.slug}" data-rating="0">😵忘了</button>
+              <button class="sr-rate hard" data-slug="${p.slug}" data-rating="1">😤难</button>
+              <button class="sr-rate good" data-slug="${p.slug}" data-rating="2">👍记得</button>
+              <button class="sr-rate easy" data-slug="${p.slug}" data-rating="3">😊简单</button>
+            </div>
+          ` : `
+            <div class="sr-queue-item-go">
+              <button class="sr-go-btn" data-url="${p.url}">跳转 →</button>
+            </div>
+          `}
+        </div>
+      `;
+    }).join('');
+
+    // Bind events
+    list.querySelectorAll('.sr-rate').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await this.rateReview(btn.dataset.slug, parseInt(btn.dataset.rating));
+      });
+    });
+
+    list.querySelectorAll('.sr-go-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        window.location.href = btn.dataset.url;
+      });
+    });
+  }
+
+  async rateReview(slug, rating) {
+    const labels = ['忘了', '困难', '记得', '简单'];
+    try {
+      const response = await this.safeSendMessage({
+        action: 'markReviewed', slug, rating
+      });
+
+      if (response && response.success) {
+        this.showNotification(
+          `✅ ${labels[rating]}！${response.intervalDays}天后再次复习`,
+          'success'
+        );
+        await this.refreshQueue();
+
+        if (slug === this.problemInfo?.slug) {
+          this.checkProblemStatus();
+        }
+      }
+    } catch (e) {
+      this.showNotification('评分失败: ' + e.message, 'error');
+    }
+  }
+
+  goToNextReview() {
+    const queue = this.reviewQueue || [];
+    const currentSlug = this.problemInfo?.slug;
+    const next = queue.find(p => p.slug !== currentSlug) || queue[0];
+    if (next) {
+      window.location.href = next.url;
+    } else {
+      this.showNotification('🎉 所有复习都完成了！', 'success');
     }
   }
 

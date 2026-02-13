@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "LeetCode Spaced Repetition",
-  "version": "1.0.0",
-  "description": "根据遗忘曲线智能安排LeetCode题目复习，自动同步到Google Calendar",
+  "version": "2.0.0",
+  "description": "SM-2自适应遗忘曲线 + 智能教练 + 成就系统 | LeetCode复习神器",
   "permissions": [
     "storage",
     "alarms",

@@ -3,33 +3,33 @@
 .leetcode-sr-floating {
   position: fixed;
   top: 120px;
-  right: 20px;
+  right: 16px;
   z-index: 10000;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 5px;
 }
 
 .leetcode-sr-main-btn {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 20px;
+  gap: 5px;
+  padding: 7px 12px;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   border: none;
-  border-radius: 12px;
-  font-size: 14px;
+  border-radius: 8px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 3px 10px rgba(102, 126, 234, 0.35);
   transition: all 0.3s ease;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 .leetcode-sr-main-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(102, 126, 234, 0.45);
 }
 
 .leetcode-sr-main-btn:active {
@@ -42,7 +42,7 @@
 }
 
 .leetcode-sr-main-btn.leetcode-sr-log:hover {
-  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.5);
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.45);
 }
 
 .leetcode-sr-main-btn.adding {
@@ -75,14 +75,14 @@
 
 /* 状态指示器 */
 .leetcode-sr-status {
-  padding: 8px 12px;
+  padding: 5px 10px;
   background: rgba(255, 255, 255, 0.95);
   border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  font-size: 12px;
+  border-radius: 6px;
+  font-size: 11px;
   color: #6b7280;
   text-align: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
   transition: opacity 0.3s ease;
 }
 
@@ -127,16 +127,311 @@
   color: #2563eb;
 }
 
+/* 输入弹窗 */
+.leetcode-sr-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 10002;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.leetcode-sr-dialog-box {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  width: 360px;
+  max-width: 90vw;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  animation: sr-dialog-in 0.2s ease;
+}
+
+@keyframes sr-dialog-in {
+  from { opacity: 0; transform: scale(0.95) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.leetcode-sr-dialog-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1f2937;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e5e7eb;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.leetcode-sr-dialog-row {
+  margin-bottom: 12px;
+}
+
+.leetcode-sr-dialog-row label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 4px;
+}
+
+.leetcode-sr-dialog-row input,
+.leetcode-sr-dialog-row textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1.5px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  transition: border-color 0.2s;
+  background: #f9fafb;
+  color: #1f2937;
+  box-sizing: border-box;
+}
+
+.leetcode-sr-dialog-row input:focus,
+.leetcode-sr-dialog-row textarea:focus {
+  outline: none;
+  border-color: #667eea;
+  background: white;
+}
+
+.leetcode-sr-dialog-row textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.leetcode-sr-dialog-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.sr-dialog-btn {
+  flex: 1;
+  padding: 8px 6px;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+
+.sr-btn-cancel {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+.sr-btn-cancel:hover { background: #e5e7eb; }
+
+.sr-btn-skip {
+  background: #fef3c7;
+  color: #92400e;
+}
+.sr-btn-skip:hover { background: #fde68a; }
+
+.sr-btn-confirm {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+}
+.sr-btn-confirm:hover { opacity: 0.9; }
+
+/* ============ 复习队列面板 ============ */
+.sr-queue-panel {
+  position: fixed;
+  bottom: 20px;
+  right: 16px;
+  z-index: 10000;
+  width: 280px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+  transition: box-shadow 0.3s ease;
+}
+.sr-queue-panel:hover {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.sr-queue-collapsed .sr-queue-body { display: none; }
+
+.sr-queue-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+.sr-queue-icon { font-size: 14px; }
+.sr-queue-htitle { flex: 1; }
+.sr-queue-badge {
+  background: rgba(255,255,255,0.25);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.sr-queue-toggle {
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+.sr-queue-body {
+  max-height: 340px;
+  overflow-y: auto;
+}
+.sr-queue-body::-webkit-scrollbar { width: 4px; }
+.sr-queue-body::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 2px; }
+
+.sr-queue-progress {
+  padding: 8px 14px;
+  border-bottom: 1px solid #f3f4f6;
+}
+.sr-progress-text {
+  font-size: 11px;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.sr-queue-list { padding: 6px; }
+
+.sr-queue-item {
+  padding: 8px 10px;
+  border-radius: 8px;
+  margin-bottom: 3px;
+  transition: background 0.15s;
+}
+.sr-queue-item:hover { background: #f9fafb; }
+.sr-queue-item.sr-current {
+  background: #eff6ff;
+  border: 1.5px solid #667eea;
+}
+
+.sr-queue-item-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sr-queue-pri {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.sr-queue-pri.high { background: #ef4444; }
+.sr-queue-pri.med { background: #f59e0b; }
+.sr-queue-pri.low { background: #10b981; }
+
+.sr-queue-item-title {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 500;
+  color: #1f2937;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sr-queue-item-diff {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.sr-queue-item-diff.easy { background: #d1fae5; color: #065f46; }
+.sr-queue-item-diff.medium { background: #fef3c7; color: #92400e; }
+.sr-queue-item-diff.hard { background: #fee2e2; color: #991b1b; }
+
+/* 队列内评分按钮 */
+.sr-queue-rating {
+  display: flex;
+  gap: 3px;
+  margin-top: 6px;
+}
+.sr-rate {
+  flex: 1;
+  padding: 5px 2px;
+  border: none;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+  font-family: inherit;
+}
+.sr-rate.forgot { background: #fee2e2; color: #dc2626; }
+.sr-rate.forgot:hover { background: #fecaca; }
+.sr-rate.hard { background: #ffedd5; color: #c2410c; }
+.sr-rate.hard:hover { background: #fed7aa; }
+.sr-rate.good { background: #dbeafe; color: #2563eb; }
+.sr-rate.good:hover { background: #bfdbfe; }
+.sr-rate.easy { background: #d1fae5; color: #059669; }
+.sr-rate.easy:hover { background: #a7f3d0; }
+
+.sr-queue-item-go {
+  margin-top: 4px;
+  text-align: right;
+}
+.sr-go-btn {
+  padding: 3px 10px;
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.sr-go-btn:hover { background: #dbeafe; }
+
+.sr-queue-empty {
+  padding: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.sr-queue-footer {
+  padding: 8px 10px;
+  border-top: 1px solid #f3f4f6;
+}
+.sr-queue-next-btn {
+  width: 100%;
+  padding: 8px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+.sr-queue-next-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+
 /* 响应式设计 */
 @media (max-width: 768px) {
   .leetcode-sr-floating {
-    right: 10px;
+    right: 8px;
     top: 80px;
   }
 
   .leetcode-sr-main-btn {
-    padding: 10px 16px;
-    font-size: 13px;
+    padding: 6px 10px;
+    font-size: 11px;
   }
 }
 
@@ -152,4 +447,18 @@
     background: #1f2937;
     color: #f3f4f6;
   }
+
+  .sr-queue-panel { background: #1f2937; }
+  .sr-queue-item:hover { background: #374151; }
+  .sr-queue-item.sr-current { background: #1e3a5f; border-color: #667eea; }
+  .sr-queue-item-title { color: #f3f4f6; }
+  .sr-queue-progress { border-color: #374151; }
+  .sr-queue-footer { border-color: #374151; }
+  .sr-queue-empty { color: #6b7280; }
+
+  .leetcode-sr-dialog-box { background: #1f2937; }
+  .leetcode-sr-dialog-title { color: #f3f4f6; border-color: #374151; }
+  .leetcode-sr-dialog-row label { color: #d1d5db; }
+  .leetcode-sr-dialog-row input,
+  .leetcode-sr-dialog-row textarea { background: #374151; border-color: #4b5563; color: #f3f4f6; }
 }

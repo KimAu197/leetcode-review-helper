@@ -2,9 +2,85 @@
 
 class SpacedRepetitionManager {
   constructor() {
-    // 遗忘曲线间隔 (天数): 1天, 3天, 7天, 14天, 30天, 60天
-    this.reviewIntervals = [1, 3, 7, 14, 30, 60];
+    this.defaultIntervals = [1, 3, 7, 14, 30, 60];
     this.init();
+  }
+
+  async getReviewIntervals() {
+    const result = await chrome.storage.local.get('customIntervals');
+    return result.customIntervals || this.defaultIntervals;
+  }
+
+  // ============ SM-2 自适应算法 ============
+
+  dateOffset(days) {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    d.setHours(20, 0, 0, 0);
+    return d.getTime();
+  }
+
+  calculateNextReview(problem, rating) {
+    let ef = problem.easeFactor ?? 2.5;
+    let prevInterval = problem.currentIntervalDays ?? 1;
+    let interval, newEf;
+
+    switch (rating) {
+      case 0: // Forgot — 完全忘了，重置
+        interval = 1;
+        newEf = Math.max(1.3, ef - 0.2);
+        break;
+      case 1: // Hard — 费劲想起来
+        interval = Math.max(1, Math.round(prevInterval * 1.2));
+        newEf = Math.max(1.3, ef - 0.15);
+        break;
+      case 2: // Good — 正常回忆
+        interval = prevInterval <= 1 ? 3 : Math.round(prevInterval * ef);
+        newEf = ef;
+        break;
+      case 3: // Easy — 轻松做出
+        interval = prevInterval <= 1 ? 7 : Math.round(prevInterval * ef * 1.3);
+        newEf = Math.min(3.0, ef + 0.15);
+        break;
+      default:
+        interval = Math.max(1, Math.round(prevInterval * ef));
+        newEf = ef;
+    }
+
+    return {
+      interval,
+      easeFactor: Math.round(newEf * 100) / 100,
+      nextReviewDate: this.dateOffset(interval)
+    };
+  }
+
+  calculatePriorityScore(problem) {
+    const now = Date.now();
+    const nextReview = problem.nextReviewDate ||
+      (problem.reviewDates && problem.reviewDates[problem.currentInterval || 0]);
+    if (!nextReview) return 0;
+
+    let score = 0;
+
+    // 1. 超期天数 (10分/天)
+    const overdueDays = Math.max(0, (now - nextReview) / 86400000);
+    score += overdueDays * 10;
+
+    // 2. 掌握度低 = 高优先 (EF越低分越高)
+    const ef = problem.easeFactor ?? 2.5;
+    score += (3.0 - ef) * 15;
+
+    // 3. 难度权重
+    const dw = { Hard: 15, Medium: 10, Easy: 5, Unknown: 8 };
+    score += dw[problem.difficulty] || 8;
+
+    // 4. 最近表现差
+    const history = problem.reviewHistory || [];
+    if (history.length > 0 && history[history.length - 1].rating <= 1) {
+      score += 20;
+    }
+
+    return Math.round(score * 10) / 10;
   }
 
   init() {
@@ -59,6 +135,26 @@ class SpacedRepetitionManager {
           sendResponse({ tags });
           break;
         }
+        case 'refreshTags': {
+          const refreshResult = await this.refreshAllTags();
+          sendResponse(refreshResult);
+          break;
+        }
+        case 'getIntervals': {
+          const intervals = await this.getReviewIntervals();
+          sendResponse({ intervals });
+          break;
+        }
+        case 'setIntervals': {
+          await chrome.storage.local.set({ customIntervals: request.intervals });
+          sendResponse({ success: true });
+          break;
+        }
+        case 'getStats': {
+          const stats = await this.getStats();
+          sendResponse({ stats });
+          break;
+        }
         case 'getProblemsByTag': {
           const tagProblems = await this.getProblemsByTag(request.tag);
           sendResponse({ problems: tagProblems });
@@ -84,9 +180,14 @@ class SpacedRepetitionManager {
           sendResponse({ completed });
           break;
         }
+        case 'getReviewQueue': {
+          const queue = await this.getReviewQueue();
+          sendResponse({ queue });
+          break;
+        }
         case 'markReviewed': {
-          await this.markProblemReviewed(request.slug);
-          sendResponse({ success: true });
+          const reviewResult = await this.markProblemReviewed(request.slug, request.rating);
+          sendResponse(reviewResult);
           break;
         }
         case 'deleteProblem': {
@@ -102,6 +203,36 @@ class SpacedRepetitionManager {
         case 'connectCalendar': {
           const authResult = await this.authenticateGoogle();
           sendResponse(authResult);
+          break;
+        }
+        case 'getDailyPlan': {
+          const plan = await this.getDailyPlan();
+          sendResponse({ plan });
+          break;
+        }
+        case 'getWeakTags': {
+          const weakTags = await this.getWeakTags();
+          sendResponse({ weakTags });
+          break;
+        }
+        case 'getStreakData': {
+          const streakInfo = await this.getStreakData();
+          sendResponse({ streak: streakInfo });
+          break;
+        }
+        case 'getAchievements': {
+          const achievements = await this.getAchievements();
+          sendResponse({ achievements });
+          break;
+        }
+        case 'getGoals': {
+          const goals = await this.getGoals();
+          sendResponse({ goals });
+          break;
+        }
+        case 'setGoals': {
+          await chrome.storage.local.set({ goals: request.goals });
+          sendResponse({ success: true });
           break;
         }
         default:
@@ -135,6 +266,8 @@ class SpacedRepetitionManager {
 
       practiceLog.push({
         ...problemInfo,
+        duration: problemInfo.duration || null,
+        notes: problemInfo.notes || null,
         loggedAt: Date.now()
       });
 
@@ -233,6 +366,326 @@ class SpacedRepetitionManager {
     return result;
   }
 
+  // ============ 统计数据 ============
+
+  async getStats() {
+    const storageResult = await chrome.storage.local.get(['problems', 'practiceLog']);
+    const problemsMap = storageResult.problems || {};
+    const practiceLog = storageResult.practiceLog || [];
+    const allReviewProblems = Object.values(problemsMap);
+
+    const now = new Date();
+    const today = new Date(now); today.setHours(0, 0, 0, 0);
+    const todayTs = today.getTime();
+
+    // ---- 今日统计 ----
+    const todayPractice = practiceLog.filter(p => p.loggedAt >= todayTs);
+    const todayReviewDone = allReviewProblems.filter(p =>
+      p.completedReviews.some(ts => ts >= todayTs)
+    );
+    const todayAll = [...todayPractice, ...todayReviewDone];
+
+    const todayDifficulty = { Easy: 0, Medium: 0, Hard: 0, Unknown: 0 };
+    todayAll.forEach(p => {
+      const d = p.difficulty || 'Unknown';
+      todayDifficulty[d] = (todayDifficulty[d] || 0) + 1;
+    });
+
+    // ---- 累计统计 ----
+    // 合并所有题目（去重）
+    const allSlugs = new Set();
+    const allProblems = [];
+    const addUnique = (p) => {
+      if (!allSlugs.has(p.slug)) {
+        allSlugs.add(p.slug);
+        allProblems.push(p);
+      }
+    };
+    allReviewProblems.forEach(addUnique);
+    practiceLog.forEach(addUnique);
+
+    const totalDifficulty = { Easy: 0, Medium: 0, Hard: 0, Unknown: 0 };
+    allProblems.forEach(p => {
+      const d = p.difficulty || 'Unknown';
+      totalDifficulty[d] = (totalDifficulty[d] || 0) + 1;
+    });
+
+    // ---- 每日刷题量（最近30天） ----
+    const dailyCounts = [];
+    for (let i = 29; i >= 0; i--) {
+      const dayStart = new Date(now);
+      dayStart.setDate(dayStart.getDate() - i);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayEnd.getDate() + 1);
+      const dayStartTs = dayStart.getTime();
+      const dayEndTs = dayEnd.getTime();
+
+      const practiceCount = practiceLog.filter(p =>
+        p.loggedAt >= dayStartTs && p.loggedAt < dayEndTs
+      ).length;
+
+      const reviewCount = allReviewProblems.filter(p =>
+        p.completedReviews.some(ts => ts >= dayStartTs && ts < dayEndTs)
+      ).length;
+
+      dailyCounts.push({
+        date: dayStart.toISOString().slice(0, 10),
+        label: `${dayStart.getMonth() + 1}/${dayStart.getDate()}`,
+        practice: practiceCount,
+        review: reviewCount,
+        total: practiceCount + reviewCount
+      });
+    }
+
+    return {
+      todayTotal: todayAll.length,
+      todayDifficulty,
+      totalProblems: allProblems.length,
+      totalDifficulty,
+      reviewProblems: allReviewProblems.length,
+      practiceProblems: practiceLog.length,
+      dailyCounts
+    };
+  }
+
+  // ============ 智能教练系统 ============
+
+  async getGoals() {
+    const result = await chrome.storage.local.get('goals');
+    return result.goals || { dailyNew: 3, dailyReview: 8, timeBudget: 45 };
+  }
+
+  async getDailyPlan() {
+    const goals = await this.getGoals();
+    const dueReviews = await this.getReviewQueue();
+    const todayPractice = await this.getTodayPractice();
+    const todayCompleted = await this.getTodayCompleted();
+    const weakTags = await this.getWeakTags();
+
+    const dayOfWeek = new Date().getDay();
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+    const reviewsDone = todayCompleted.length;
+    const newDone = todayPractice.length;
+    const reviewTarget = isWeekend ? Math.ceil(goals.dailyReview * 1.5) : goals.dailyReview;
+    const recommendedReviews = Math.min(dueReviews.length, reviewTarget);
+
+    // ~5min per review, ~15min per new problem
+    const reviewMins = Math.max(0, recommendedReviews - reviewsDone) * 5;
+    const newMins = Math.max(0, goals.dailyNew - newDone) * 15;
+    const estimatedMinutes = Math.max(0, reviewMins + newMins);
+
+    return {
+      isWeekend,
+      goals,
+      dueCount: dueReviews.length,
+      reviewsDone,
+      newDone,
+      reviewTarget,
+      recommendedReviews,
+      estimatedMinutes,
+      weakTags: weakTags.slice(0, 5),
+      topReviews: dueReviews.slice(0, 3)
+    };
+  }
+
+  async getWeakTags() {
+    const storageResult = await chrome.storage.local.get(['problems', 'practiceLog']);
+    const problemsMap = storageResult.problems || {};
+    const tagStats = {};
+
+    for (const problem of Object.values(problemsMap)) {
+      const tags = problem.tags || [];
+      const ef = problem.easeFactor ?? 2.5;
+      const history = problem.reviewHistory || [];
+      const fails = history.filter(h => h.rating <= 1).length;
+
+      tags.forEach(tag => {
+        if (!tagStats[tag]) tagStats[tag] = { total: 0, efSum: 0, failCount: 0, reviewCount: 0 };
+        tagStats[tag].total++;
+        tagStats[tag].efSum += ef;
+        tagStats[tag].failCount += fails;
+        tagStats[tag].reviewCount += history.length;
+      });
+    }
+
+    return Object.entries(tagStats)
+      .map(([tag, s]) => {
+        const avgEF = s.total > 0 ? s.efSum / s.total : 2.5;
+        const failRate = s.reviewCount > 0 ? s.failCount / s.reviewCount : 0;
+        // Low EF + high fail rate + few problems = weak
+        const score = (3.0 - avgEF) * 20 + failRate * 30 + (s.total < 3 ? 15 : 0);
+        return { tag, avgEF: Math.round(avgEF * 100) / 100, failRate: Math.round(failRate * 100), total: s.total, score: Math.round(score) };
+      })
+      .filter(t => t.score > 5)
+      .sort((a, b) => b.score - a.score);
+  }
+
+  // ============ 成就 & 连续天数 ============
+
+  async getStreakData() {
+    const storageResult = await chrome.storage.local.get(['problems', 'practiceLog']);
+    const problemsMap = storageResult.problems || {};
+    const practiceLog = storageResult.practiceLog || [];
+
+    // Collect all active dates
+    const activeDates = new Set();
+    for (const p of Object.values(problemsMap)) {
+      (p.completedReviews || []).forEach(ts => activeDates.add(new Date(ts).toISOString().slice(0, 10)));
+    }
+    practiceLog.forEach(p => activeDates.add(new Date(p.loggedAt).toISOString().slice(0, 10)));
+
+    // Current streak
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    let currentStreak = 0;
+    let check = new Date(today);
+
+    if (!activeDates.has(check.toISOString().slice(0, 10))) {
+      check.setDate(check.getDate() - 1);
+      if (!activeDates.has(check.toISOString().slice(0, 10))) {
+        currentStreak = 0;
+      } else {
+        while (activeDates.has(check.toISOString().slice(0, 10))) {
+          currentStreak++;
+          check.setDate(check.getDate() - 1);
+        }
+      }
+    } else {
+      while (activeDates.has(check.toISOString().slice(0, 10))) {
+        currentStreak++;
+        check.setDate(check.getDate() - 1);
+      }
+    }
+
+    // Longest streak
+    const sorted = [...activeDates].sort();
+    let longest = 0, temp = 1;
+    for (let i = 1; i < sorted.length; i++) {
+      if ((new Date(sorted[i]) - new Date(sorted[i - 1])) / 86400000 === 1) {
+        temp++;
+      } else {
+        longest = Math.max(longest, temp);
+        temp = 1;
+      }
+    }
+    longest = Math.max(longest, temp);
+    if (sorted.length === 0) longest = 0;
+
+    // Review success rate
+    let totalReviews = 0, goodReviews = 0;
+    for (const p of Object.values(problemsMap)) {
+      const h = p.reviewHistory || [];
+      totalReviews += h.length;
+      goodReviews += h.filter(r => r.rating >= 2).length;
+    }
+
+    return {
+      currentStreak,
+      longestStreak: longest,
+      totalActiveDays: activeDates.size,
+      successRate: totalReviews > 0 ? Math.round(goodReviews / totalReviews * 100) : 0,
+      totalReviews
+    };
+  }
+
+  async getAchievements() {
+    const storageResult = await chrome.storage.local.get(['problems', 'practiceLog']);
+    const problemsMap = storageResult.problems || {};
+    const practiceLog = storageResult.practiceLog || [];
+    const streak = await this.getStreakData();
+
+    const uniqueProblems = new Set([
+      ...Object.keys(problemsMap),
+      ...practiceLog.map(p => p.slug)
+    ]).size;
+
+    return [
+      { id: 'first_review', name: '初次复习', desc: '完成第一次复习', icon: '🎯', unlocked: streak.totalReviews >= 1 },
+      { id: 'ten_reviews', name: '复习达人', desc: '完成10次复习', icon: '📚', unlocked: streak.totalReviews >= 10 },
+      { id: 'fifty_reviews', name: '复习大师', desc: '完成50次复习', icon: '🏆', unlocked: streak.totalReviews >= 50 },
+      { id: 'hundred_reviews', name: '复习传奇', desc: '完成100次复习', icon: '👑', unlocked: streak.totalReviews >= 100 },
+      { id: 'streak_3', name: '三日连续', desc: '连续刷题3天', icon: '🔥', unlocked: streak.longestStreak >= 3 },
+      { id: 'streak_7', name: '周周不断', desc: '连续刷题7天', icon: '🔥', unlocked: streak.longestStreak >= 7 },
+      { id: 'streak_30', name: '月度坚持', desc: '连续刷题30天', icon: '💎', unlocked: streak.longestStreak >= 30 },
+      { id: 'prob_10', name: '初探题海', desc: '涉猎10道题', icon: '🌊', unlocked: uniqueProblems >= 10 },
+      { id: 'prob_50', name: '半百征途', desc: '涉猎50道题', icon: '⚡', unlocked: uniqueProblems >= 50 },
+      { id: 'prob_100', name: '百题斩', desc: '涉猎100道题', icon: '🗡️', unlocked: uniqueProblems >= 100 },
+      { id: 'rate_80', name: '记忆高手', desc: '复习成功率≥80%', icon: '🧠', unlocked: streak.successRate >= 80 && streak.totalReviews >= 10 },
+      { id: 'rate_95', name: '过目不忘', desc: '成功率≥95%', icon: '🌟', unlocked: streak.successRate >= 95 && streak.totalReviews >= 20 },
+    ];
+  }
+
+  // ============ Tag自动补全 ============
+
+  async fetchTagsFromLeetCode(slug) {
+    try {
+      const query = `query questionData($titleSlug: String!) {
+        question(titleSlug: $titleSlug) {
+          topicTags { name slug }
+        }
+      }`;
+
+      const response = await fetch('https://leetcode.com/graphql', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, variables: { titleSlug: slug } })
+      });
+
+      if (!response.ok) return [];
+
+      const data = await response.json();
+      const tags = data?.data?.question?.topicTags || [];
+      return tags.map(t => t.name);
+    } catch (error) {
+      console.warn('Failed to fetch tags for', slug, error);
+      return [];
+    }
+  }
+
+  async refreshAllTags() {
+    try {
+      const storageResult = await chrome.storage.local.get(['problems', 'practiceLog']);
+      const problemsMap = storageResult.problems || {};
+      const practiceLog = storageResult.practiceLog || [];
+      let updated = 0;
+
+      // 补全 review problems 的 tags
+      for (const slug of Object.keys(problemsMap)) {
+        const problem = problemsMap[slug];
+        if (!problem.tags || problem.tags.length === 0) {
+          const tags = await this.fetchTagsFromLeetCode(slug);
+          if (tags.length > 0) {
+            problem.tags = tags;
+            updated++;
+          }
+          // 避免请求过快
+          await new Promise(r => setTimeout(r, 300));
+        }
+      }
+
+      // 补全 practiceLog 的 tags
+      for (let i = 0; i < practiceLog.length; i++) {
+        const entry = practiceLog[i];
+        if (!entry.tags || entry.tags.length === 0) {
+          const tags = await this.fetchTagsFromLeetCode(entry.slug);
+          if (tags.length > 0) {
+            entry.tags = tags;
+            updated++;
+          }
+          await new Promise(r => setTimeout(r, 300));
+        }
+      }
+
+      await chrome.storage.local.set({ problems: problemsMap, practiceLog });
+      console.log(`✅ Refreshed tags for ${updated} problems`);
+      return { success: true, updated };
+    } catch (error) {
+      console.error('Error refreshing tags:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
   // ============ 核心功能：题目管理 ============
 
   async addProblem(problemInfo) {
@@ -240,53 +693,57 @@ class SpacedRepetitionManager {
       const storageResult = await chrome.storage.local.get('problems');
       const problemsMap = storageResult.problems || {};
 
-      // 检查是否已存在
       if (problemsMap[problemInfo.slug]) {
-        return {
-          success: false,
-          error: '这道题已经在复习计划中了'
-        };
+        return { success: false, error: '这道题已经在复习计划中了' };
       }
 
-      // 生成复习日期
-      const reviewDates = this.generateReviewDates();
+      // 用自定义间隔的第一个值作为首次复习间隔
+      const intervals = await this.getReviewIntervals();
+      const firstInterval = intervals[0] || 1;
+      const nextReviewDate = this.dateOffset(firstInterval);
 
-      // 保存题目信息
       problemsMap[problemInfo.slug] = {
         ...problemInfo,
+        duration: problemInfo.duration || null,
+        notes: problemInfo.notes || null,
         addedAt: Date.now(),
-        reviewDates: reviewDates,
+        // SM-2 自适应字段
+        easeFactor: 2.5,
+        currentIntervalDays: firstInterval,
+        nextReviewDate: nextReviewDate,
+        reviewHistory: [],
         completedReviews: [],
+        // Legacy compat
+        reviewDates: [nextReviewDate],
         currentInterval: 0,
         calendarEventIds: []
       };
 
       await chrome.storage.local.set({ problems: problemsMap });
-
-      console.log('✅ Problem added successfully:', problemInfo.slug);
+      console.log('✅ Problem added:', problemInfo.slug, `(first review in ${firstInterval}d)`);
 
       return {
         success: true,
-        reviewDates: reviewDates,
+        nextReviewDate,
+        intervalDays: firstInterval,
+        reviewDates: [nextReviewDate],
         message: '成功添加到复习计划'
       };
     } catch (error) {
       console.error('Error adding problem:', error);
-      return {
-        success: false,
-        error: error.message
-      };
+      return { success: false, error: error.message };
     }
   }
 
-  generateReviewDates() {
+  async generateReviewDates() {
+    const intervals = await this.getReviewIntervals();
     const now = new Date();
     const dates = [];
 
-    for (const interval of this.reviewIntervals) {
+    for (const interval of intervals) {
       const reviewDate = new Date(now);
       reviewDate.setDate(reviewDate.getDate() + interval);
-      reviewDate.setHours(20, 0, 0, 0); // 默认晚上8点提醒
+      reviewDate.setHours(20, 0, 0, 0);
       dates.push(reviewDate.getTime());
     }
 
@@ -299,13 +756,16 @@ class SpacedRepetitionManager {
 
     if (problemsMap[slug]) {
       const problem = problemsMap[slug];
-      const nextReview = problem.reviewDates[problem.currentInterval];
+      const nextReview = problem.nextReviewDate ||
+        (problem.reviewDates && problem.reviewDates[problem.currentInterval || 0]);
 
       return {
         exists: true,
         nextReview: nextReview,
-        completedReviews: problem.completedReviews.length,
-        totalReviews: problem.reviewDates.length
+        easeFactor: problem.easeFactor ?? 2.5,
+        currentIntervalDays: problem.currentIntervalDays || 0,
+        completedReviews: (problem.completedReviews || []).length,
+        totalReviews: (problem.reviewHistory || []).length
       };
     }
 
@@ -319,21 +779,18 @@ class SpacedRepetitionManager {
 
   async getTodayReviews() {
     const problems = await this.getAllProblems();
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
+    const tomorrow = new Date();
+    tomorrow.setHours(0, 0, 0, 0);
     tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowTs = tomorrow.getTime();
 
-    const todayTimestamp = today.getTime();
-    const tomorrowTimestamp = tomorrow.getTime();
-
+    // 包含今天到期 + 逾期未复习的题目
     return problems.filter(problem => {
-      if (problem.currentInterval >= problem.reviewDates.length) {
-        return false; // 已完成所有复习
-      }
-
-      const nextReviewDate = problem.reviewDates[problem.currentInterval];
-      return nextReviewDate >= todayTimestamp && nextReviewDate < tomorrowTimestamp;
+      const nextReview = problem.nextReviewDate ||
+        (problem.reviewDates && (problem.currentInterval || 0) < problem.reviewDates.length
+          ? problem.reviewDates[problem.currentInterval || 0] : null);
+      if (!nextReview) return false;
+      return nextReview < tomorrowTs;
     });
   }
 
@@ -348,40 +805,55 @@ class SpacedRepetitionManager {
     });
   }
 
-  async markProblemReviewed(slug) {
+  async getReviewQueue() {
+    const dueProblems = await this.getTodayReviews();
+    return dueProblems
+      .map(p => ({ ...p, priorityScore: this.calculatePriorityScore(p) }))
+      .sort((a, b) => b.priorityScore - a.priorityScore);
+  }
+
+  async markProblemReviewed(slug, rating = 2) {
     const storageResult = await chrome.storage.local.get('problems');
     const problemsMap = storageResult.problems || {};
 
-    if (problemsMap[slug]) {
-      const problem = problemsMap[slug];
-      problem.completedReviews.push(Date.now());
-      problem.currentInterval++;
+    if (!problemsMap[slug]) return { success: false, error: '题目不存在' };
 
-      await chrome.storage.local.set({ problems: problemsMap });
+    const problem = problemsMap[slug];
+    const { interval, easeFactor, nextReviewDate } = this.calculateNextReview(problem, rating);
 
-      // 创建桌面通知（安全调用）
-      try {
-        const remaining = problem.reviewDates.length - problem.currentInterval;
-        if (remaining > 0) {
-          const nextDate = new Date(problem.reviewDates[problem.currentInterval]);
-          chrome.notifications.create(`review-${slug}`, {
-            type: 'basic',
-            iconUrl: chrome.runtime.getURL('icons/icon48.png'),
-            title: '复习完成！',
-            message: `${problem.number}. ${problem.title} - 下次复习: ${nextDate.toLocaleDateString()}`
-          }, () => { if (chrome.runtime.lastError) { /* ignore icon errors */ } });
-        } else {
-          chrome.notifications.create(`review-${slug}`, {
-            type: 'basic',
-            iconUrl: chrome.runtime.getURL('icons/icon48.png'),
-            title: '完成全部复习！',
-            message: `${problem.number}. ${problem.title} - 已完成所有复习计划`
-          }, () => { if (chrome.runtime.lastError) { /* ignore icon errors */ } });
-        }
-      } catch (notifError) {
-        console.warn('Notification failed:', notifError);
-      }
-    }
+    problem.easeFactor = easeFactor;
+    problem.currentIntervalDays = interval;
+    problem.nextReviewDate = nextReviewDate;
+    problem.completedReviews.push(Date.now());
+
+    if (!problem.reviewHistory) problem.reviewHistory = [];
+    problem.reviewHistory.push({
+      date: Date.now(),
+      rating: rating,
+      interval: interval,
+      easeFactor: easeFactor
+    });
+
+    // Legacy compat
+    if (!problem.reviewDates) problem.reviewDates = [];
+    problem.reviewDates.push(nextReviewDate);
+    problem.currentInterval = problem.reviewDates.length - 1;
+
+    await chrome.storage.local.set({ problems: problemsMap });
+
+    const ratingLabels = ['Forgot', 'Hard', 'Good', 'Easy'];
+    console.log(`📝 Review: ${slug} | ${ratingLabels[rating]} | Next: ${interval}d | EF: ${easeFactor}`);
+
+    try {
+      chrome.notifications.create(`review-${slug}`, {
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('icons/icon48.png'),
+        title: '复习完成！',
+        message: `${problem.number}. ${problem.title} — ${interval}天后再次复习`
+      }, () => { if (chrome.runtime.lastError) {} });
+    } catch (e) {}
+
+    return { success: true, nextReviewDate, intervalDays: interval, easeFactor };
   }
 
   async deleteProblem(slug) {
@@ -573,17 +1045,49 @@ class SpacedRepetitionManager {
   async onInstalled() {
     console.log('LeetCode Spaced Repetition installed!');
 
-    // 初始化存储
     const storageResult = await chrome.storage.local.get(['problems', 'practiceLog']);
-    if (!storageResult.problems) {
-      await chrome.storage.local.set({ problems: {} });
-    }
-    if (!storageResult.practiceLog) {
-      await chrome.storage.local.set({ practiceLog: [] });
+    if (!storageResult.problems) await chrome.storage.local.set({ problems: {} });
+    if (!storageResult.practiceLog) await chrome.storage.local.set({ practiceLog: [] });
+
+    // 迁移旧题目到 SM-2
+    await this.migrateToSM2();
+    this.checkDailyReviews();
+  }
+
+  async migrateToSM2() {
+    const storageResult = await chrome.storage.local.get('problems');
+    const problemsMap = storageResult.problems || {};
+    let migrated = 0;
+
+    for (const slug of Object.keys(problemsMap)) {
+      const p = problemsMap[slug];
+      if (p.easeFactor === undefined) {
+        p.easeFactor = 2.5;
+        p.reviewHistory = [];
+
+        if (p.reviewDates && p.reviewDates.length > 0) {
+          const ci = p.currentInterval || 0;
+          if (ci < p.reviewDates.length) {
+            p.nextReviewDate = p.reviewDates[ci];
+            const prevTs = ci > 0 ? p.reviewDates[ci - 1] : (p.addedAt || Date.now());
+            p.currentIntervalDays = Math.max(1, Math.round(Math.abs(p.reviewDates[ci] - prevTs) / 86400000));
+          } else {
+            // 旧复习全部完成，安排30天后
+            p.currentIntervalDays = 30;
+            p.nextReviewDate = this.dateOffset(30);
+          }
+        } else {
+          p.currentIntervalDays = 1;
+          p.nextReviewDate = this.dateOffset(1);
+        }
+        migrated++;
+      }
     }
 
-    // 立即检查今日复习
-    this.checkDailyReviews();
+    if (migrated > 0) {
+      await chrome.storage.local.set({ problems: problemsMap });
+      console.log(`✅ Migrated ${migrated} problems to SM-2`);
+    }
   }
 }
 

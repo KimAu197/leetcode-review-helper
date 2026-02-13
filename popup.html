@@ -8,7 +8,6 @@
 </head>
 <body>
   <div class="container">
-    <!-- Header -->
     <div class="header">
       <h1>LeetCode Review Helper</h1>
       <p class="subtitle">Spaced Repetition + Practice Tracker</p>
@@ -36,27 +35,31 @@
 
     <!-- Tab导航 -->
     <div class="tabs">
-      <button class="tab-btn active" data-tab="practice">今日刷题</button>
+      <button class="tab-btn active" data-tab="practice">今日</button>
       <button class="tab-btn" data-tab="review">复习</button>
-      <button class="tab-btn" data-tab="tags">按标签</button>
+      <button class="tab-btn" data-tab="stats">统计</button>
+      <button class="tab-btn" data-tab="tags">标签</button>
       <button class="tab-btn" data-tab="settings">设置</button>
     </div>
 
     <!-- 今日刷题标签页 -->
     <div class="tab-content active" id="tab-practice">
-      <!-- Tag统计 -->
+      <!-- 每日计划 -->
+      <div id="dailyPlanSection"></div>
+      <!-- 今日最该复习 Top3 -->
+      <div id="top3Card"></div>
+
       <div id="tagStatsSection" class="tag-stats-section hidden">
         <h3 class="section-title">今日 Tag 分布</h3>
         <div id="tagStatsChart" class="tag-stats-chart"></div>
       </div>
-
-      <!-- 刷题列表 -->
+      <div id="todayDiffSection" class="diff-section hidden">
+        <h3 class="section-title">今日难度分布</h3>
+        <div id="todayDiffChart" class="diff-chart"></div>
+      </div>
+      <h3 class="section-title" style="margin-top:12px">刷题记录</h3>
       <div id="practiceList" class="problem-list">
         <div class="empty-state">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <path d="M9 11l3 3L22 4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" stroke-width="2" stroke-linecap="round"/>
-          </svg>
           <p>今天还没有刷题记录</p>
           <small>在LeetCode题目页点击"记录刷题"按钮</small>
         </div>
@@ -67,63 +70,67 @@
     <div class="tab-content" id="tab-review">
       <h3 class="section-title" id="reviewPendingTitle">待复习</h3>
       <div id="reviewPendingList" class="problem-list">
-        <div class="empty-state">
-          <p>今天没有需要复习的题目</p>
-        </div>
+        <div class="empty-state small"><p>今天没有需要复习的题目</p></div>
       </div>
       <h3 class="section-title" id="reviewDoneTitle" style="margin-top:16px;">今日已复习</h3>
       <div id="reviewDoneList" class="problem-list">
-        <div class="empty-state small">
-          <p>还没有完成复习</p>
-        </div>
+        <div class="empty-state small"><p>还没有完成复习</p></div>
       </div>
+    </div>
+
+    <!-- 统计标签页 -->
+    <div class="tab-content" id="tab-stats">
+      <!-- 连续天数 & 成就 -->
+      <div id="streakSection"></div>
+      <div id="achievementsSection"></div>
+
+      <h3 class="section-title">累计难度分布</h3>
+      <div id="totalDiffChart" class="diff-chart"></div>
+
+      <h3 class="section-title" style="margin-top:18px">每日刷题量（近30天）</h3>
+      <div id="dailyBarChart" class="daily-bar-chart"></div>
+
+      <div id="statsSummary" class="stats-summary"></div>
     </div>
 
     <!-- 按标签标签页 -->
     <div class="tab-content" id="tab-tags">
       <div id="tagFilterSection" class="tag-filter-section">
-        <p class="section-desc">选择标签查看相关题目</p>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <p class="section-desc" style="margin:0;">选择标签查看相关题目</p>
+          <button id="refreshTagsBtn" class="btn-refresh">刷新标签</button>
+        </div>
         <div id="tagFilterChips" class="tag-filter-chips"></div>
       </div>
       <div id="tagProblemList" class="problem-list">
-        <div class="empty-state">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" stroke-width="2"/>
-            <line x1="7" y1="7" x2="7.01" y2="7" stroke-width="2" stroke-linecap="round"/>
-          </svg>
-          <p>选择一个标签开始浏览</p>
-        </div>
+        <div class="empty-state"><p>选择一个标签开始浏览</p></div>
       </div>
     </div>
 
     <!-- 设置标签页 -->
     <div class="tab-content" id="tab-settings">
       <div class="settings-section">
-        <h3>Google Calendar</h3>
-        <p class="settings-desc">将复习计划同步到Google Calendar</p>
-        <button id="connectCalendar" class="btn-primary">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <rect x="3" y="4" width="18" height="18" rx="2" ry="2" stroke-width="2"/>
-            <line x1="16" y1="2" x2="16" y2="6" stroke-width="2"/>
-            <line x1="8" y1="2" x2="8" y2="6" stroke-width="2"/>
-            <line x1="3" y1="10" x2="21" y2="10" stroke-width="2"/>
-          </svg>
-          连接Google Calendar
-        </button>
-        <div id="calendarStatus" class="status-message hidden"></div>
+        <h3>每日目标</h3>
+        <p class="settings-desc">设定你的每日刷题和复习计划</p>
+        <div id="goalsEditor"></div>
       </div>
 
       <div class="settings-section">
-        <h3>复习间隔</h3>
-        <p class="settings-desc">遗忘曲线间隔（天）</p>
-        <div class="intervals">
-          <span class="interval-tag">1</span>
-          <span class="interval-tag">3</span>
-          <span class="interval-tag">7</span>
-          <span class="interval-tag">14</span>
-          <span class="interval-tag">30</span>
-          <span class="interval-tag">60</span>
+        <h3>复习间隔（天）</h3>
+        <p class="settings-desc">自定义遗忘曲线复习间隔</p>
+        <div id="intervalsEditor" class="intervals-editor"></div>
+        <div class="interval-add-row">
+          <input type="number" id="newIntervalInput" min="1" max="365" placeholder="天数" class="interval-input">
+          <button id="addIntervalBtn" class="btn-add-interval">添加</button>
         </div>
+        <button id="resetIntervalsBtn" class="btn-secondary" style="margin-top:8px;">恢复默认 (1,3,7,14,30,60)</button>
+      </div>
+
+      <div class="settings-section">
+        <h3>Google Calendar</h3>
+        <p class="settings-desc">将复习计划同步到Google Calendar</p>
+        <button id="connectCalendar" class="btn-primary">连接Google Calendar</button>
+        <div id="calendarStatus" class="status-message hidden"></div>
       </div>
 
       <div class="settings-section">
@@ -134,9 +141,8 @@
       </div>
     </div>
 
-    <!-- Footer -->
     <div class="footer">
-      <p>v1.1.0 | Made with ❤️ by Kenzie</p>
+      <p>v2.0.0 | Made with ❤️ by Kenzie</p>
     </div>
   </div>
 
