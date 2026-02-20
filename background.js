@@ -209,16 +209,6 @@ class SpacedRepetitionManager {
           sendResponse({ success: true });
           break;
         }
-        case 'syncToCalendar': {
-          const syncResult = await this.syncProblemToCalendar(request.slug);
-          sendResponse(syncResult);
-          break;
-        }
-        case 'connectCalendar': {
-          const authResult = await this.authenticateGoogle();
-          sendResponse(authResult);
-          break;
-        }
         case 'getDailyPlan': {
           const plan = await this.getDailyPlan();
           sendResponse({ plan });
@@ -764,8 +754,7 @@ class SpacedRepetitionManager {
         completedReviews: [],
         // Legacy compat
         reviewDates: [nextReviewDate],
-        currentInterval: 0,
-        calendarEventIds: []
+        currentInterval: 0
       };
 
       await chrome.storage.local.set({ problems: problemsMap });
@@ -933,153 +922,6 @@ class SpacedRepetitionManager {
       }
     } catch (error) {
       console.error('checkDailyReviews error:', error);
-    }
-  }
-
-  // ============ Google Calendar集成（可选） ============
-
-  isCalendarConfigured() {
-    // 检查是否配置了有效的Google OAuth client_id
-    const manifest = chrome.runtime.getManifest();
-    const clientId = manifest.oauth2 && manifest.oauth2.client_id;
-    return clientId && !clientId.includes('YOUR_GOOGLE_CLIENT_ID');
-  }
-
-  async authenticateGoogle() {
-    if (!this.isCalendarConfigured()) {
-      return {
-        success: false,
-        error: '请先在manifest.json中配置Google OAuth client_id，参考SETUP_GUIDE.md'
-      };
-    }
-
-    try {
-      const token = await chrome.identity.getAuthToken({ interactive: true });
-      await chrome.storage.local.set({ googleToken: token.token || token });
-      return { success: true, token: token.token || token };
-    } catch (error) {
-      console.error('Google authentication failed:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  async getGoogleToken() {
-    if (!this.isCalendarConfigured()) {
-      return null;
-    }
-
-    try {
-      const storageResult = await chrome.storage.local.get('googleToken');
-      if (storageResult.googleToken) {
-        return storageResult.googleToken;
-      }
-
-      // 尝试获取新token（非交互式，不弹窗）
-      try {
-        const tokenResult = await chrome.identity.getAuthToken({ interactive: false });
-        const token = tokenResult.token || tokenResult;
-        if (token) {
-          await chrome.storage.local.set({ googleToken: token });
-          return token;
-        }
-      } catch (e) {
-        // 非交互式获取失败，需要用户手动连接
-      }
-
-      return null;
-    } catch (error) {
-      console.error('Failed to get Google token:', error);
-      return null;
-    }
-  }
-
-  async syncProblemToCalendar(slug) {
-    if (!this.isCalendarConfigured()) {
-      return { success: false, error: '请先配置Google Calendar API' };
-    }
-
-    const token = await this.getGoogleToken();
-    if (!token) {
-      return { success: false, error: '请先在设置中连接Google Calendar' };
-    }
-
-    const storageResult = await chrome.storage.local.get('problems');
-    const problemsMap = storageResult.problems || {};
-    const problem = problemsMap[slug];
-
-    if (!problem) {
-      return { success: false, error: '题目不存在' };
-    }
-
-    const eventIds = [];
-
-    // 为每个复习日期创建日历事件
-    for (let i = problem.currentInterval; i < problem.reviewDates.length; i++) {
-      const reviewDate = new Date(problem.reviewDates[i]);
-      const endDate = new Date(reviewDate.getTime() + 60 * 60 * 1000); // 1小时后
-
-      const event = {
-        summary: `复习: ${problem.number}. ${problem.title}`,
-        description: `LeetCode题目复习\n\n难度: ${problem.difficulty}\n链接: ${problem.url}\n\n这是第 ${i + 1}/${problem.reviewDates.length} 次复习`,
-        start: {
-          dateTime: reviewDate.toISOString(),
-          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
-        },
-        end: {
-          dateTime: endDate.toISOString(),
-          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
-        },
-        reminders: {
-          useDefault: false,
-          overrides: [
-            { method: 'popup', minutes: 30 }
-          ]
-        },
-        colorId: '9'
-      };
-
-      try {
-        const response = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(event)
-        });
-
-        if (response.ok) {
-          const eventData = await response.json();
-          eventIds.push(eventData.id);
-        } else {
-          const errorData = await response.json();
-          console.error('Calendar event creation failed:', errorData);
-        }
-      } catch (error) {
-        console.error('Failed to create calendar event:', error);
-      }
-    }
-
-    // 保存事件ID
-    problem.calendarEventIds = eventIds;
-    await chrome.storage.local.set({ problems: problemsMap });
-
-    return { success: true, eventIds };
-  }
-
-  async deleteCalendarEvent(eventId) {
-    const token = await this.getGoogleToken();
-    if (!token) return;
-
-    try {
-      await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-    } catch (error) {
-      console.warn('Failed to delete calendar event:', error);
     }
   }
 

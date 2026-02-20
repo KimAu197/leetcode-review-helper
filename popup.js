@@ -17,7 +17,6 @@ class PopupManager {
   }
 
   setupEventListeners() {
-    document.getElementById('connectCalendar').addEventListener('click', () => this.connectCalendar());
     document.getElementById('exportData').addEventListener('click', () => this.exportData());
     document.getElementById('importData').addEventListener('click', () => this.importData());
     document.getElementById('clearData').addEventListener('click', () => this.clearData());
@@ -1007,21 +1006,6 @@ class PopupManager {
   }
 
   // ============ 设置 ============
-
-  async connectCalendar() {
-    const btn = document.getElementById('connectCalendar');
-    const status = document.getElementById('calendarStatus');
-    btn.disabled = true; btn.textContent = '连接中...';
-    try {
-      const response = await chrome.runtime.sendMessage({ action: 'connectCalendar' });
-      if (response.success) { status.textContent = '✅ 已连接'; status.className = 'status-message success'; btn.textContent = '已连接'; }
-      else throw new Error(response.error);
-    } catch (error) {
-      status.textContent = '❌ ' + error.message; status.className = 'status-message error';
-      btn.disabled = false; btn.textContent = '重试';
-    }
-    status.classList.remove('hidden');
-  }
 
   async exportData() {
     const [p, pr] = await Promise.all([

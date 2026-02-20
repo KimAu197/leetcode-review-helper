@@ -55,7 +55,6 @@ A Chrome extension that uses **SM-2 adaptive spaced repetition** to intelligentl
 - **Optional Duration & Notes**: When adding/logging a problem, optionally record solve time and thoughts
 - **Donut Difficulty Charts**: LeetCode-style donut charts for difficulty distribution
 - **Tag Filtering**: Browse all problems by tag with auto-fetching from LeetCode GraphQL API
-- **Google Calendar Sync**: Sync review events with reminders
 - **Data Export/Import**: Full JSON backup and restore
 - **Daily Notifications**: Chrome badge + notifications for due reviews
 
@@ -100,14 +99,6 @@ cd leetcode-review-helper
 3. Click **Load unpacked**
 4. Select the project folder
 
-### 3. (Optional) Google Calendar Setup
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a project → Enable **Google Calendar API**
-3. Set up **OAuth consent screen** (add yourself as test user)
-4. Create **OAuth 2.0 Client ID** (type: Chrome Extension)
-5. Paste the Client ID into `manifest.json` → `oauth2.client_id`
-
 ## Usage
 
 ### On LeetCode Pages
@@ -128,14 +119,13 @@ cd leetcode-review-helper
 | Practiced | Interactive month calendar (heatmap), click dates to view daily records |
 | Stats | Streak, achievements, difficulty donut, daily bar chart, cumulative stats |
 | Tags | Browse problems by tag, refresh from LeetCode API |
-| Settings | Daily goals, first review interval, auto-log toggle, Calendar, data management |
+| Settings | Daily goals, first review interval, auto-log toggle, data management |
 
 ## Tech Stack
 
 - **Chrome Manifest V3**
 - **Vanilla JavaScript** — zero dependencies
 - **SM-2 Algorithm** — adaptive spaced repetition
-- **Google Calendar API** — optional sync
 - **LeetCode GraphQL API** — tag fetching
 - **Chrome Storage / Alarms / Notifications APIs**
 
@@ -157,7 +147,6 @@ leetcode-spaced-repetition/
 ## Privacy
 
 - All data stored **locally** in Chrome Storage
-- Google Calendar accessed **only** with explicit authorization
 - **No analytics, no tracking, no server**
 - Fully open source
 
@@ -167,7 +156,6 @@ leetcode-spaced-repetition/
 |-------|----------|
 | Buttons not showing | Refresh LeetCode page; must be on `/problems/*` |
 | "Extension context invalidated" | Refresh page after reloading extension |
-| Calendar connection failed | Check Client ID; add yourself as test user |
 | No tags showing | Click "Refresh Tags" in Tags tab |
 | Queue panel not visible | Only appears when there are due reviews |
 | Streak shows "undefined" | Fixed in latest version — all stats now default to 0 |
@@ -218,7 +206,7 @@ MIT License
 
 ## Author
 
-Made with ❤️ by Kenzie
+Made by Kenzie
 
 ---
 
@@ -281,7 +269,6 @@ If you find this useful, give it a ⭐!
 - **可选用时 & 心得**：添加/记录题目时可选填完成时间和思路笔记
 - **甜甜圈难度图**：LeetCode 风格的环形难度分布图
 - **标签筛选**：按标签浏览题目，自动从 LeetCode GraphQL API 获取标签
-- **Google Calendar 同步**：将复习事件同步到日历
 - **数据导入导出**：完整 JSON 备份和恢复
 - **每日通知**：Chrome 徽章 + 通知提醒今日复习
 
@@ -326,14 +313,6 @@ cd leetcode-review-helper
 3. 点击**加载已解压的扩展程序**
 4. 选择项目文件夹
 
-### 3.（可选）设置 Google Calendar
-
-1. 前往 [Google Cloud Console](https://console.cloud.google.com/)
-2. 创建项目 → 启用 **Google Calendar API**
-3. 设置 **OAuth 同意屏幕**（将自己添加为测试用户）
-4. 创建 **OAuth 2.0 客户端 ID**（类型：Chrome 扩展程序）
-5. 将 Client ID 粘贴到 `manifest.json` 的 `oauth2.client_id`
-
 ## 使用方法
 
 ### 在 LeetCode 页面
@@ -354,14 +333,13 @@ cd leetcode-review-helper
 | 已刷 | 交互式月历（热力图），点击日期查看每日记录 |
 | 统计 | 连续天数、成就、难度甜甜圈、每日柱状图、累积统计 |
 | 标签 | 按标签浏览题目，从 LeetCode API 刷新 |
-| 设置 | 每日目标、首次复习间隔、自动记录开关、日历、数据管理 |
+| 设置 | 每日目标、首次复习间隔、自动记录开关、数据管理 |
 
 ## 技术栈
 
 - **Chrome Manifest V3**
 - **原生 JavaScript** — 零依赖
 - **SM-2 算法** — 自适应间隔重复
-- **Google Calendar API** — 可选同步
 - **LeetCode GraphQL API** — 标签获取
 - **Chrome Storage / Alarms / Notifications API**
 
@@ -383,7 +361,6 @@ leetcode-spaced-repetition/
 ## 隐私
 
 - 所有数据**本地存储**在 Chrome Storage 中
-- Google Calendar **仅在**用户明确授权后访问
 - **无分析、无追踪、无服务器**
 - 完全开源
 
@@ -432,7 +409,7 @@ MIT License
 
 ## 作者
 
-Made with ❤️ by Kenzie
+Made by Kenzie
 
 ---
 
