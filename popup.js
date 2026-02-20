@@ -22,11 +22,11 @@ class PopupManager {
     document.getElementById('importData').addEventListener('click', () => this.importData());
     document.getElementById('clearData').addEventListener('click', () => this.clearData());
     document.getElementById('refreshTagsBtn').addEventListener('click', () => this.handleRefreshTags());
-    document.getElementById('addIntervalBtn').addEventListener('click', () => this.addInterval());
-    document.getElementById('resetIntervalsBtn').addEventListener('click', () => this.resetIntervals());
-    document.getElementById('newIntervalInput').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') this.addInterval();
+    document.getElementById('saveFirstIntervalBtn').addEventListener('click', () => this.saveFirstInterval());
+    document.getElementById('firstIntervalInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this.saveFirstInterval();
     });
+    document.getElementById('autoLogOnReviewToggle').addEventListener('change', (e) => this.saveAutoLogSetting(e.target.checked));
   }
 
   switchTab(tabName) {
@@ -40,6 +40,7 @@ class PopupManager {
     switch (tabName) {
       case 'practice': await this.loadTodayPractice(); break;
       case 'review': await this.loadReviewTab(); break;
+      case 'practiced': await this.loadPracticedTab(); break;
       case 'stats': await this.loadStatsTab(); break;
       case 'tags': await this.loadTagsTab(); break;
       case 'settings': await this.loadSettingsTab(); break;
@@ -136,7 +137,7 @@ class PopupManager {
               <span class="donut-legend-dot" style="background:${i.color}"></span>
               <span class="donut-legend-name">${i.label}</span>
               <span class="donut-legend-count">${i.count}</span>
-              <span class="donut-legend-pct">${Math.round(i.count / total * 100)}%</span>
+              <span class="donut-legend-pct">${total > 0 ? Math.round(i.count / total * 100) : 0}%</span></span>
             </div>
           `).join('')}
         </div>
@@ -151,15 +152,20 @@ class PopupManager {
       const p = planRes.plan || {};
       const container = document.getElementById('dailyPlanSection');
 
-      const reviewPct = p.reviewTarget > 0 ? Math.min(100, Math.round(p.reviewsDone / p.reviewTarget * 100)) : 0;
-      const newPct = p.goals?.dailyNew > 0 ? Math.min(100, Math.round(p.newDone / p.goals.dailyNew * 100)) : 0;
+      const reviewPct = p.reviewTarget > 0 ? Math.min(100, Math.round((p.reviewsDone || 0) / p.reviewTarget * 100)) : 0;
+      const newPct = p.goals?.dailyNew > 0 ? Math.min(100, Math.round((p.newDone || 0) / p.goals.dailyNew * 100)) : 0;
+
+      const modeClass = p.backlogMode ? 'plan-backlog' : (p.isWeekend ? 'plan-weekend' : '');
+      const modeBadge = p.backlogMode
+        ? `<div class="plan-backlog-badge">⚠️ 积压清理模式 · ${p.overdueCount || 0}道逾期 · 约${p.backlogDays || 0}天消化</div>`
+        : (p.isWeekend ? '<div class="plan-weekend-badge">🔄 周末清仓模式 · 复习量×1.5</div>' : '');
 
       container.innerHTML = `
-        <div class="plan-card ${p.isWeekend ? 'plan-weekend' : ''}">
-          ${p.isWeekend ? '<div class="plan-weekend-badge">🔄 周末清仓模式 · 复习量×1.5</div>' : ''}
+        <div class="plan-card ${modeClass}">
+          ${modeBadge}
           <div class="plan-grid">
             <div class="plan-item">
-              <div class="plan-val">${p.dueCount}</div>
+              <div class="plan-val">${p.dueCount || 0}${(p.overdueCount || 0) > 0 ? `<small class="plan-overdue-hint"> (${p.overdueCount}逾期)</small>` : ''}</div>
               <div class="plan-lbl">待复习</div>
             </div>
             <div class="plan-item">
@@ -170,7 +176,7 @@ class PopupManager {
                     stroke-dasharray="${reviewPct * 1.13} 113" stroke-dashoffset="0"
                     stroke-linecap="round" style="transform:rotate(-90deg);transform-origin:center;transition:stroke-dasharray 0.5s"/>
                 </svg>
-                <span class="plan-ring-text">${p.reviewsDone}/${p.reviewTarget}</span>
+                <span class="plan-ring-text">${p.reviewsDone || 0}/${p.reviewTarget || 0}</span>
               </div>
               <div class="plan-lbl">复习进度</div>
             </div>
@@ -182,19 +188,19 @@ class PopupManager {
                     stroke-dasharray="${newPct * 1.13} 113" stroke-dashoffset="0"
                     stroke-linecap="round" style="transform:rotate(-90deg);transform-origin:center;transition:stroke-dasharray 0.5s"/>
                 </svg>
-                <span class="plan-ring-text">${p.newDone}/${p.goals?.dailyNew || 3}</span>
+                <span class="plan-ring-text">${p.newDone || 0}/${p.goals?.dailyNew || 3}</span>
               </div>
               <div class="plan-lbl">新题进度</div>
             </div>
             <div class="plan-item">
-              <div class="plan-val plan-time">~${p.estimatedMinutes}<small>min</small></div>
+              <div class="plan-val plan-time">~${p.estimatedMinutes || 0}<small>min</small></div>
               <div class="plan-lbl">预计剩余</div>
             </div>
           </div>
-          ${p.weakTags?.length > 0 ? `
+          ${(p.weakTags?.length || 0) > 0 ? `
             <div class="plan-weak">
               <span class="plan-weak-label">🎯 盲区推荐</span>
-              ${p.weakTags.slice(0, 3).map(t => `<span class="plan-weak-tag" title="平均EF:${t.avgEF} 失败率:${t.failRate}%">${t.tag}</span>`).join('')}
+              ${(p.weakTags || []).slice(0, 3).map(t => `<span class="plan-weak-tag" title="平均EF:${t.avgEF || 0} 失败率:${t.failRate || 0}%">${t.tag}</span>`).join('')}
             </div>` : ''}
         </div>`;
 
@@ -218,9 +224,9 @@ class PopupManager {
         </div>
         ${topReviews.map((p, i) => `
           <div class="share-item">
-            <span class="share-medal">${medals[i]}</span>
-            <span class="share-name">#${p.number} ${p.title}</span>
-            <span class="share-diff ${(p.difficulty || '').toLowerCase()}">${p.difficulty}</span>
+            <span class="share-medal">${medals[i] || ''}</span>
+            <span class="share-name">#${p.number || '?'} ${p.title || '未知题目'}</span>
+            <span class="share-diff ${(p.difficulty || '').toLowerCase()}">${p.difficulty || 'Unknown'}</span>
           </div>
         `).join('')}
         <div class="share-footer">LeetCode Review Helper · Spaced Repetition</div>
@@ -255,7 +261,10 @@ class PopupManager {
       // Tag 统计图
       this.renderTagStats(tagStats);
 
-      // 刷题列表
+      // 今日 AC 率
+      this.renderTodayAcRate(practice);
+
+      // 今日刷题列表
       const container = document.getElementById('practiceList');
       if (practice.length === 0) {
         container.innerHTML = `<div class="empty-state"><p>今天还没有刷题记录</p><small>在LeetCode题目页点击"记录刷题"按钮</small></div>`;
@@ -278,22 +287,346 @@ class PopupManager {
     }).join('');
   }
 
-  createPracticeCard(problem) {
+  renderTodayAcRate(practice) {
+    const section = document.getElementById('todayAcSection');
+    const container = document.getElementById('todayAcRate');
+    
+    // 只统计有 solved 字段的题目
+    const withStatus = practice.filter(p => p.solved !== undefined);
+    if (withStatus.length === 0) {
+      section.classList.add('hidden');
+      return;
+    }
+
+    const acCount = withStatus.filter(p => p.solved === true).length;
+    const total = withStatus.length;
+    const rate = total > 0 ? Math.round((acCount / total) * 100) : 0;
+
+    section.classList.remove('hidden');
+    container.innerHTML = `
+      <div class="ac-rate-card">
+        <div class="ac-rate-main">
+          <div class="ac-rate-circle">
+            <svg width="80" height="80" viewBox="0 0 80 80">
+              <circle cx="40" cy="40" r="36" fill="none" stroke="#e5e7eb" stroke-width="6"/>
+              <circle cx="40" cy="40" r="36" fill="none" stroke="${rate >= 80 ? '#10b981' : rate >= 50 ? '#f59e0b' : '#ef4444'}" stroke-width="6"
+                stroke-dasharray="${rate * 2.26} 226" stroke-linecap="round"
+                style="transform:rotate(-90deg);transform-origin:center;transition:stroke-dasharray 0.5s"/>
+            </svg>
+            <span class="ac-rate-text">${rate}%</span>
+          </div>
+          <div class="ac-rate-details">
+            <div class="ac-rate-row">
+              <span class="ac-rate-label">✓ AC</span>
+              <span class="ac-rate-val ac-yes">${acCount}</span>
+            </div>
+            <div class="ac-rate-row">
+              <span class="ac-rate-label">✗ 未AC</span>
+              <span class="ac-rate-val ac-no">${total - acCount}</span>
+            </div>
+            <div class="ac-rate-row">
+              <span class="ac-rate-label">总计</span>
+              <span class="ac-rate-val">${total}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  renderHeatmapCalendar(allPractice) {
+    const container = document.getElementById('heatmapCalendar');
+    
+    // 按日期统计
+    const countByDate = {};
+    const problemsByDate = {};
+    allPractice.forEach(p => {
+      const date = new Date(p.loggedAt);
+      const dateKey = date.toISOString().slice(0, 10);
+      countByDate[dateKey] = (countByDate[dateKey] || 0) + 1;
+      if (!problemsByDate[dateKey]) problemsByDate[dateKey] = [];
+      problemsByDate[dateKey].push(p);
+    });
+
+    // 存储数据供后续使用
+    this.practiceData = { countByDate, problemsByDate, allPractice };
+    
+    // 初始化为当前月份
+    if (!this.currentCalendarDate) {
+      this.currentCalendarDate = new Date();
+    }
+
+    this.renderMonthView();
+  }
+
+  renderMonthView() {
+    const container = document.getElementById('heatmapCalendar');
+    if (!this.practiceData) return;
+
+    const { countByDate, problemsByDate } = this.practiceData;
+    const year = this.currentCalendarDate.getFullYear();
+    const month = this.currentCalendarDate.getMonth();
+    
+    // 获取当月第一天和最后一天
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    
+    // 获取当月第一天是星期几 (0=周日)
+    const firstDayOfWeek = firstDay.getDay();
+    
+    // 计算当月统计
+    const monthStart = new Date(year, month, 1).getTime();
+    const monthEnd = new Date(year, month + 1, 0, 23, 59, 59).getTime();
+    const monthProblems = this.practiceData.allPractice.filter(p => 
+      p.loggedAt >= monthStart && p.loggedAt <= monthEnd
+    );
+    const monthCount = monthProblems.length;
+    const monthAcCount = monthProblems.filter(p => p.solved === true).length;
+    const monthAcRate = monthCount > 0 ? Math.round((monthAcCount / monthCount) * 100) : 0;
+
+    // 生成日历格子
+    const cells = [];
+    
+    // 填充空白 (周日到第一天之前)
+    for (let i = 0; i < firstDayOfWeek; i++) {
+      cells.push('<div class="calendar-cell calendar-empty"></div>');
+    }
+    
+    // 填充日期
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayTs = today.getTime();
+    
+    for (let day = 1; day <= daysInMonth; day++) {
+      const date = new Date(year, month, day);
+      const dateKey = date.toISOString().slice(0, 10);
+      const count = countByDate[dateKey] || 0;
+      const isToday = date.getTime() === todayTs;
+      const isFuture = date > today;
+      
+      const level = count === 0 ? 0 : count === 1 ? 1 : count <= 3 ? 2 : count <= 5 ? 3 : 4;
+      const todayClass = isToday ? 'calendar-today' : '';
+      const futureClass = isFuture ? 'calendar-future' : '';
+      
+      cells.push(`
+        <div class="calendar-cell ${todayClass} ${futureClass}" 
+             data-date="${dateKey}" 
+             data-count="${count}"
+             data-level="${level}">
+          <div class="calendar-day-num">${day}</div>
+          ${count > 0 ? `<div class="calendar-count level-${level}">${count}</div>` : ''}
+        </div>
+      `);
+    }
+
+    const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
+    
+    container.innerHTML = `
+      <div class="calendar-header">
+        <button class="calendar-nav-btn" id="calendar-prev-month">‹</button>
+        <div class="calendar-title">
+          <span class="calendar-year clickable" id="calendar-year-selector">${year}年</span>
+          <span class="calendar-month clickable" id="calendar-month-selector">${monthNames[month]}</span>
+        </div>
+        <button class="calendar-nav-btn" id="calendar-next-month">›</button>
+      </div>
+      <div class="calendar-stats">
+        <span class="calendar-stat">本月刷题: <strong>${monthCount}</strong></span>
+        <span class="calendar-stat">AC率: <strong>${monthAcRate}%</strong></span>
+      </div>
+      <div class="calendar-weekdays">
+        ${['日', '一', '二', '三', '四', '五', '六'].map(d => `<div class="calendar-weekday">${d}</div>`).join('')}
+      </div>
+      <div class="calendar-grid">
+        ${cells.join('')}
+      </div>
+      <div class="calendar-legend">
+        <span class="calendar-legend-label">少</span>
+        <div class="calendar-legend-item level-0"></div>
+        <div class="calendar-legend-item level-1"></div>
+        <div class="calendar-legend-item level-2"></div>
+        <div class="calendar-legend-item level-3"></div>
+        <div class="calendar-legend-item level-4"></div>
+        <span class="calendar-legend-label">多</span>
+      </div>
+    `;
+
+    // 绑定导航按钮
+    document.getElementById('calendar-prev-month').addEventListener('click', () => {
+      this.currentCalendarDate.setMonth(this.currentCalendarDate.getMonth() - 1);
+      this.renderMonthView();
+    });
+
+    document.getElementById('calendar-next-month').addEventListener('click', () => {
+      this.currentCalendarDate.setMonth(this.currentCalendarDate.getMonth() + 1);
+      this.renderMonthView();
+    });
+
+    // 年份选择器
+    document.getElementById('calendar-year-selector').addEventListener('click', () => {
+      this.showYearPicker(year);
+    });
+
+    // 月份选择器
+    document.getElementById('calendar-month-selector').addEventListener('click', () => {
+      this.showMonthPicker(month);
+    });
+
+    // 绑定日期点击
+    container.querySelectorAll('.calendar-cell[data-count]').forEach(cell => {
+      const count = parseInt(cell.dataset.count);
+      if (count > 0) {
+        cell.style.cursor = 'pointer';
+        cell.addEventListener('click', () => {
+          const dateKey = cell.dataset.date;
+          this.showDayDetails(dateKey, this.practiceData.allPractice);
+          // 高亮选中
+          container.querySelectorAll('.calendar-cell').forEach(c => c.classList.remove('selected'));
+          cell.classList.add('selected');
+        });
+      }
+    });
+  }
+
+  showYearPicker(currentYear) {
+    const container = document.getElementById('heatmapCalendar');
+    const today = new Date().getFullYear();
+    const startYear = today - 5; // 往前5年
+    const endYear = today;
+    
+    const years = [];
+    for (let y = endYear; y >= startYear; y--) {
+      years.push(y);
+    }
+
+    container.innerHTML = `
+      <div class="calendar-header">
+        <button class="calendar-nav-btn calendar-back-btn" id="calendar-back-to-month">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M15 18l-6-6 6-6"/>
+          </svg>
+        </button>
+        <div class="calendar-title">
+          <span class="calendar-month" style="font-size:13px;">选择年份</span>
+        </div>
+        <div style="width:32px;"></div>
+      </div>
+      <div class="year-picker-grid">
+        ${years.map(y => `
+          <button class="year-picker-item ${y === currentYear ? 'selected' : ''}" data-year="${y}">
+            ${y}
+          </button>
+        `).join('')}
+      </div>
+    `;
+
+    document.getElementById('calendar-back-to-month').addEventListener('click', () => {
+      this.renderMonthView();
+    });
+
+    container.querySelectorAll('.year-picker-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const year = parseInt(btn.dataset.year);
+        this.currentCalendarDate.setFullYear(year);
+        this.renderMonthView();
+      });
+    });
+  }
+
+  showMonthPicker(currentMonth) {
+    const container = document.getElementById('heatmapCalendar');
+    const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
+
+    container.innerHTML = `
+      <div class="calendar-header">
+        <button class="calendar-nav-btn calendar-back-btn" id="calendar-back-to-month">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M15 18l-6-6 6-6"/>
+          </svg>
+        </button>
+        <div class="calendar-title">
+          <span class="calendar-month" style="font-size:13px;">选择月份</span>
+        </div>
+        <div style="width:32px;"></div>
+      </div>
+      <div class="month-picker-grid">
+        ${monthNames.map((name, idx) => `
+          <button class="month-picker-item ${idx === currentMonth ? 'selected' : ''}" data-month="${idx}">
+            ${name}
+          </button>
+        `).join('')}
+      </div>
+    `;
+
+    document.getElementById('calendar-back-to-month').addEventListener('click', () => {
+      this.renderMonthView();
+    });
+
+    container.querySelectorAll('.month-picker-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const month = parseInt(btn.dataset.month);
+        this.currentCalendarDate.setMonth(month);
+        this.renderMonthView();
+      });
+    });
+  }
+
+  showDayDetails(dateKey, allPractice) {
+    const section = document.getElementById('selectedDaySection');
+    const title = document.getElementById('selectedDayTitle');
+    const list = document.getElementById('selectedDayList');
+
+    const dayProblems = allPractice.filter(p => {
+      const pDate = new Date(p.loggedAt).toISOString().slice(0, 10);
+      return pDate === dateKey;
+    });
+
+    if (dayProblems.length === 0) {
+      section.classList.add('hidden');
+      return;
+    }
+
+    const date = new Date(dateKey);
+    title.textContent = `${date.getMonth() + 1}月${date.getDate()}日刷题记录 (${(dayProblems || []).length}题)`;
+    section.classList.remove('hidden');
+
+    list.innerHTML = (dayProblems || [])
+      .sort((a, b) => (b.loggedAt || 0) - (a.loggedAt || 0))
+      .map(p => this.createPracticeCard(p, false))
+      .join('');
+    
+    this.attachCardListeners();
+
+    // 滚动到详情区域
+    section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  createPracticeCard(problem, showDate = false) {
     const tags = problem.tags || [];
     const tagsHtml = tags.length > 0 ? `<div class="problem-tags">${tags.map(t => `<span class="tag">${t}</span>`).join('')}</div>` : '';
-    const time = new Date(problem.loggedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    // 如果 showDate=true，显示日期；否则只显示时间
+    const dateTime = new Date(problem.loggedAt);
+    const timeDisplay = showDate 
+      ? `${dateTime.getMonth() + 1}/${dateTime.getDate()} ${dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+      : dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
     const durationHtml = problem.duration ? `<span>⏱ ${problem.duration}min</span>` : '';
+    const solvedHtml = problem.solved !== undefined 
+      ? (problem.solved ? '<span class="ac-badge ac-yes">✓ AC</span>' : '<span class="ac-badge ac-no">✗ 未AC</span>')
+      : '';
     const notesHtml = problem.notes ? `<div class="problem-notes">${this.escapeHtml(problem.notes)}</div>` : '';
     return `
-      <div class="problem-card" data-slug="${problem.slug}">
+      <div class="problem-card" data-slug="${problem.slug || ''}">
         <div class="problem-header">
-          <div class="problem-title"><span class="problem-number">#${problem.number}</span>${problem.title}</div>
-          <span class="difficulty ${(problem.difficulty || '').toLowerCase()}">${problem.difficulty}</span>
+          <div class="problem-title"><span class="problem-number">#${problem.number || '?'}</span>${problem.title || '未知题目'}</div>
+          <span class="difficulty ${(problem.difficulty || '').toLowerCase()}">${problem.difficulty || 'Unknown'}</span>
         </div>
         ${tagsHtml}
-        <div class="problem-meta"><span>🕐 ${time}</span>${durationHtml}</div>
+        <div class="problem-meta"><span>🕐 ${timeDisplay}</span>${solvedHtml}${durationHtml}</div>
         ${notesHtml}
-        <div class="problem-actions"><button class="btn-small btn-link" data-action="open" data-url="${problem.url}">打开题目</button></div>
+        <div class="problem-actions"><button class="btn-small btn-link" data-action="open" data-url="${problem.url || ''}">打开题目</button></div>
       </div>`;
   }
 
@@ -324,6 +657,18 @@ class PopupManager {
     } catch (error) { console.error('Error loading reviews:', error); }
   }
 
+  // ============ 已刷题目 Tab ============
+
+  async loadPracticedTab() {
+    try {
+      const response = await chrome.runtime.sendMessage({ action: 'getAllPractice' });
+      const practiced = response.practiced || [];
+
+      // 只渲染热力图日历
+      this.renderHeatmapCalendar(practiced);
+    } catch (error) { console.error('Error loading practiced:', error); }
+  }
+
   createReviewCard(problem, isDone) {
     const tags = problem.tags || [];
     const tagsHtml = tags.length > 0 ? `<div class="problem-tags">${tags.map(t => `<span class="tag">${t}</span>`).join('')}</div>` : '';
@@ -342,11 +687,18 @@ class PopupManager {
     const nextReview = problem.nextReviewDate ||
       (problem.reviewDates && problem.reviewDates[problem.currentInterval || 0]);
 
+    // Overdue calculation
+    const now = Date.now();
+    const overdueDays = nextReview ? Math.floor((now - nextReview) / 86400000) : 0;
+    const overdueHtml = !isDone && overdueDays > 0
+      ? `<span class="overdue-badge" title="逾期${overdueDays}天">逾期${overdueDays}天</span>`
+      : '';
+
     // Last rating info for completed reviews
     const history = problem.reviewHistory || [];
     const lastR = history.length > 0 ? history[history.length - 1] : null;
     const rLabels = ['😵 忘了', '😤 困难', '👍 记得', '😊 简单'];
-    const lastInfo = isDone && lastR ? `<span>${rLabels[lastR.rating]} → ${lastR.interval}天后</span>` : '';
+    const lastInfo = isDone && lastR ? `<span>${rLabels[lastR.rating] || '?'} → ${lastR.interval || 0}天后</span>` : '';
 
     // Rating buttons for pending reviews
     const ratingHtml = !isDone ? `
@@ -361,8 +713,9 @@ class PopupManager {
       <div class="problem-card" data-slug="${slug}">
         <div class="problem-header">
           ${priorityHtml}
-          <div class="problem-title"><span class="problem-number">#${problem.number}</span>${problem.title}</div>
-          <span class="difficulty ${(problem.difficulty || '').toLowerCase()}">${problem.difficulty}</span>
+          ${overdueHtml}
+          <div class="problem-title"><span class="problem-number">#${problem.number || '?'}</span>${problem.title || '未知题目'}</div>
+          <span class="difficulty ${(problem.difficulty || '').toLowerCase()}">${problem.difficulty || 'Unknown'}</span>
         </div>
         ${tagsHtml}
         <div class="problem-meta">
@@ -375,7 +728,7 @@ class PopupManager {
         ${notesHtml}
         <div class="problem-actions">
           ${ratingHtml}
-          <button class="btn-small btn-link" data-action="open" data-url="${problem.url}">打开</button>
+          <button class="btn-small btn-link" data-action="open" data-url="${problem.url || ''}">打开</button>
           <button class="btn-small btn-delete" data-action="delete" data-slug="${slug}">删除</button>
         </div>
       </div>`;
@@ -396,14 +749,14 @@ class PopupManager {
 
       // Streak display
       const streakEl = document.getElementById('streakSection');
-      const fireLevel = streak.currentStreak >= 30 ? 'streak-legendary' : streak.currentStreak >= 7 ? 'streak-hot' : '';
+      const fireLevel = (streak.currentStreak || 0) >= 30 ? 'streak-legendary' : (streak.currentStreak || 0) >= 7 ? 'streak-hot' : '';
       streakEl.innerHTML = `
         <div class="streak-card ${fireLevel}">
-          <div class="streak-flame">${streak.currentStreak > 0 ? '🔥' : '❄️'}</div>
+          <div class="streak-flame">${(streak.currentStreak || 0) > 0 ? '🔥' : '❄️'}</div>
           <div class="streak-info">
-            <div class="streak-num">${streak.currentStreak}<small>天连续</small></div>
+            <div class="streak-num">${streak.currentStreak || 0}<small>天连续</small></div>
             <div class="streak-meta">
-              最长 ${streak.longestStreak}天 · 成功率 ${streak.successRate}% · ${streak.totalActiveDays}天活跃
+              最长 ${streak.longestStreak || 0}天 · 成功率 ${streak.successRate || 0}% · ${streak.totalActiveDays || 0}天活跃
             </div>
           </div>
         </div>`;
@@ -457,17 +810,17 @@ class PopupManager {
     container.innerHTML = `
       <div class="bar-chart-wrapper">
         ${recent.map(d => {
-          const pHeight = Math.max((d.practice / maxTotal) * 100, 0);
-          const rHeight = Math.max((d.review / maxTotal) * 100, 0);
+          const pHeight = Math.max(((d.practice || 0) / maxTotal) * 100, 0);
+          const rHeight = Math.max(((d.review || 0) / maxTotal) * 100, 0);
           const isToday = d.date === new Date().toISOString().slice(0, 10);
           return `
             <div class="bar-col ${isToday ? 'bar-today' : ''}">
               <div class="bar-value">${d.total || ''}</div>
               <div class="bar-stack">
-                ${d.review > 0 ? `<div class="bar-seg bar-review" style="height:${rHeight}%" title="复习: ${d.review}"></div>` : ''}
-                ${d.practice > 0 ? `<div class="bar-seg bar-practice" style="height:${pHeight}%" title="刷题: ${d.practice}"></div>` : ''}
+                ${(d.review || 0) > 0 ? `<div class="bar-seg bar-review" style="height:${rHeight}%" title="复习: ${d.review}"></div>` : ''}
+                ${(d.practice || 0) > 0 ? `<div class="bar-seg bar-practice" style="height:${pHeight}%" title="刷题: ${d.practice}"></div>` : ''}
               </div>
-              <div class="bar-label">${d.label}</div>
+              <div class="bar-label">${d.label || ''}</div>
             </div>`;
         }).join('')}
       </div>
@@ -530,7 +883,7 @@ class PopupManager {
         const tags = (p.tags || []);
         const tagsHtml = tags.length > 0 ? `<div class="problem-tags">${tags.map(t => `<span class="tag ${t === tag ? 'tag-highlight' : ''}">${t}</span>`).join('')}</div>` : '';
         return `
-          <div class="problem-card"><div class="problem-header"><div class="problem-title"><span class="problem-number">#${p.number}</span>${p.title}</div><span class="source-badge ${sourceCls}">${sourceLabel}</span><span class="difficulty ${(p.difficulty || '').toLowerCase()}">${p.difficulty}</span></div>${tagsHtml}<div class="problem-actions"><button class="btn-small btn-link" data-action="open" data-url="${p.url}">打开题目</button></div></div>`;
+          <div class="problem-card"><div class="problem-header"><div class="problem-title"><span class="problem-number">#${p.number || '?'}</span>${p.title || '未知题目'}</div><span class="source-badge ${sourceCls}">${sourceLabel}</span><span class="difficulty ${(p.difficulty || '').toLowerCase()}">${p.difficulty || 'Unknown'}</span></div>${tagsHtml}<div class="problem-actions"><button class="btn-small btn-link" data-action="open" data-url="${p.url || ''}">打开题目</button></div></div>`;
       }).join('');
       this.attachCardListeners();
     } catch (error) { console.error('Error loading problems by tag:', error); }
@@ -550,7 +903,7 @@ class PopupManager {
   // ============ 设置 Tab ============
 
   async loadSettingsTab() {
-    await Promise.all([this.loadGoalsEditor(), this.loadIntervalsEditor()]);
+    await Promise.all([this.loadGoalsEditor(), this.loadFirstIntervalEditor(), this.loadAutoLogSetting()]);
   }
 
   async loadGoalsEditor() {
@@ -578,10 +931,10 @@ class PopupManager {
             <input type="number" id="goalTime" min="10" max="300" value="${goals.timeBudget}" class="goals-input">
           </div>
         </div>
-        ${weakTags.length > 0 ? `
+        ${(weakTags?.length || 0) > 0 ? `
           <div class="goals-weak-hint">
             <span class="goals-weak-label">🎯 薄弱标签</span>
-            ${weakTags.slice(0, 4).map(t => `<span class="goals-weak-chip" title="EF:${t.avgEF} 失败率:${t.failRate}%">${t.tag}</span>`).join('')}
+            ${(weakTags || []).slice(0, 4).map(t => `<span class="goals-weak-chip" title="EF:${t.avgEF || 0} 失败率:${t.failRate || 0}%">${t.tag || '?'}</span>`).join('')}
           </div>` : ''}
         <button id="saveGoalsBtn" class="btn-primary" style="margin-top:8px;">保存目标</button>`;
 
@@ -599,51 +952,31 @@ class PopupManager {
     } catch (e) { console.error('loadGoalsEditor error:', e); }
   }
 
-  // ============ 间隔编辑器 ============
+  // ============ 首次间隔设置 ============
 
-  async loadIntervalsEditor() {
-    const res = await chrome.runtime.sendMessage({ action: 'getIntervals' });
-    const intervals = res.intervals || [1, 3, 7, 14, 30, 60];
-    const editor = document.getElementById('intervalsEditor');
-
-    editor.innerHTML = intervals.sort((a, b) => a - b).map(day => `
-      <span class="interval-chip">
-        ${day}天
-        <button class="interval-remove" data-day="${day}" title="删除">×</button>
-      </span>
-    `).join('');
-
-    editor.querySelectorAll('.interval-remove').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const day = parseInt(btn.dataset.day);
-        const newIntervals = intervals.filter(d => d !== day);
-        if (newIntervals.length === 0) { alert('至少保留一个间隔'); return; }
-        await chrome.runtime.sendMessage({ action: 'setIntervals', intervals: newIntervals });
-        this.loadIntervalsEditor();
-      });
-    });
+  async loadFirstIntervalEditor() {
+    const res = await chrome.runtime.sendMessage({ action: 'getFirstInterval' });
+    const input = document.getElementById('firstIntervalInput');
+    input.value = res.firstInterval ?? 1;
   }
 
-  async addInterval() {
-    const input = document.getElementById('newIntervalInput');
+  async saveFirstInterval() {
+    const input = document.getElementById('firstIntervalInput');
     const day = parseInt(input.value);
-    if (!day || day < 1 || day > 365) { input.focus(); return; }
-
-    const res = await chrome.runtime.sendMessage({ action: 'getIntervals' });
-    const intervals = res.intervals || [1, 3, 7, 14, 30, 60];
-
-    if (intervals.includes(day)) { input.value = ''; input.focus(); return; }
-
-    intervals.push(day);
-    intervals.sort((a, b) => a - b);
-    await chrome.runtime.sendMessage({ action: 'setIntervals', intervals });
-    input.value = '';
-    this.loadIntervalsEditor();
+    if (!day || day < 1 || day > 30) { input.focus(); return; }
+    await chrome.runtime.sendMessage({ action: 'setFirstInterval', value: day });
+    const btn = document.getElementById('saveFirstIntervalBtn');
+    btn.textContent = '✅ 已保存';
+    setTimeout(() => { btn.textContent = '保存'; }, 1500);
   }
 
-  async resetIntervals() {
-    await chrome.runtime.sendMessage({ action: 'setIntervals', intervals: [1, 3, 7, 14, 30, 60] });
-    this.loadIntervalsEditor();
+  async loadAutoLogSetting() {
+    const res = await chrome.runtime.sendMessage({ action: 'getAutoLogOnReview' });
+    document.getElementById('autoLogOnReviewToggle').checked = res.enabled ?? false;
+  }
+
+  async saveAutoLogSetting(enabled) {
+    await chrome.runtime.sendMessage({ action: 'setAutoLogOnReview', enabled });
   }
 
   // ============ 通用事件绑定 ============

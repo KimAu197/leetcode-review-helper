@@ -255,14 +255,23 @@ class LeetCodeHelper {
     statusIndicator.id = 'leetcode-sr-status';
     statusIndicator.className = 'leetcode-sr-status hidden';
 
+    // 打开面板的小按钮
+    const dashBtn = document.createElement('button');
+    dashBtn.id = 'leetcode-sr-dash-btn';
+    dashBtn.className = 'leetcode-sr-dash-btn';
+    dashBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>`;
+    dashBtn.title = '打开面板';
+
     container.appendChild(logButton);
     container.appendChild(mainButton);
     container.appendChild(statusIndicator);
+    container.appendChild(dashBtn);
     document.body.appendChild(container);
 
     // 按钮点击事件
     logButton.addEventListener('click', () => this.handleLogPractice());
     mainButton.addEventListener('click', () => this.handleAddProblem());
+    dashBtn.addEventListener('click', () => this.toggleDashboard());
 
     // 检查这道题是否已经添加
     this.checkProblemStatus();
@@ -356,6 +365,19 @@ class LeetCodeHelper {
         <div class="leetcode-sr-dialog-box">
           <div class="leetcode-sr-dialog-title">${title} — ${this.problemInfo.number}. ${this.problemInfo.title}</div>
           <div class="leetcode-sr-dialog-row">
+            <label>✅ 是否做出来</label>
+            <div style="display:flex;gap:8px;">
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+                <input type="radio" name="sr-ac-status" value="true" checked style="cursor:pointer;">
+                <span style="font-size:12px;">做出来了</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+                <input type="radio" name="sr-ac-status" value="false" style="cursor:pointer;">
+                <span style="font-size:12px;">没做出来</span>
+              </label>
+            </div>
+          </div>
+          <div class="leetcode-sr-dialog-row">
             <label>⏱ 用时 (分钟)</label>
             <input type="number" id="sr-duration-input" min="1" max="999" placeholder="可选">
           </div>
@@ -377,15 +399,17 @@ class LeetCodeHelper {
       setTimeout(() => document.getElementById('sr-duration-input')?.focus(), 100);
 
       const getValues = () => {
+        const acRadio = document.querySelector('input[name="sr-ac-status"]:checked');
+        const solved = acRadio ? acRadio.value === 'true' : true;
         const duration = parseInt(document.getElementById('sr-duration-input')?.value) || null;
         const notes = document.getElementById('sr-notes-input')?.value?.trim() || null;
-        return { duration, notes };
+        return { solved, duration, notes };
       };
 
       const cleanup = () => overlay.remove();
 
       document.getElementById('sr-dialog-cancel').addEventListener('click', () => { cleanup(); resolve(null); });
-      document.getElementById('sr-dialog-skip').addEventListener('click', () => { cleanup(); resolve({ duration: null, notes: null }); });
+      document.getElementById('sr-dialog-skip').addEventListener('click', () => { cleanup(); resolve({ solved: true, duration: null, notes: null }); });
       document.getElementById('sr-dialog-confirm').addEventListener('click', () => { const v = getValues(); cleanup(); resolve(v); });
 
       // ESC 关闭
@@ -412,7 +436,7 @@ class LeetCodeHelper {
     try {
       const response = await this.safeSendMessage({
         action: 'logPractice',
-        problem: { ...this.problemInfo, duration: extra.duration, notes: extra.notes }
+        problem: { ...this.problemInfo, solved: extra.solved, duration: extra.duration, notes: extra.notes }
       });
 
       if (!response) {
@@ -469,7 +493,7 @@ class LeetCodeHelper {
     try {
       const response = await this.safeSendMessage({
         action: 'addProblem',
-        problem: { ...this.problemInfo, duration: extra.duration, notes: extra.notes }
+        problem: { ...this.problemInfo, solved: extra.solved, duration: extra.duration, notes: extra.notes }
       });
 
       if (!response) {
@@ -600,29 +624,39 @@ class LeetCodeHelper {
       return;
     }
 
+    const now = Date.now();
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayTs = todayStart.getTime();
+
     list.innerHTML = queue.map(p => {
       const isCurrent = p.slug === currentSlug;
-      const priClass = p.priorityScore >= 40 ? 'high' : p.priorityScore >= 20 ? 'med' : 'low';
+      const priClass = (p.priorityScore || 0) >= 40 ? 'high' : (p.priorityScore || 0) >= 20 ? 'med' : 'low';
       const diffClass = (p.difficulty || '').toLowerCase();
       const diffLabel = { easy: 'E', medium: 'M', hard: 'H' }[diffClass] || '?';
+      const overdueDays = p.nextReviewDate && p.nextReviewDate < todayTs
+        ? Math.floor((now - p.nextReviewDate) / 86400000) : 0;
+      const overdueTag = overdueDays > 0
+        ? `<span class="sr-queue-overdue">逾期${overdueDays}天</span>` : '';
 
       return `
-        <div class="sr-queue-item ${isCurrent ? 'sr-current' : ''}" data-slug="${p.slug}">
+        <div class="sr-queue-item ${isCurrent ? 'sr-current' : ''}" data-slug="${p.slug || ''}">
           <div class="sr-queue-item-main">
             <span class="sr-queue-pri ${priClass}"></span>
-            <span class="sr-queue-item-title">#${p.number} ${p.title}</span>
+            <span class="sr-queue-item-title">#${p.number || '?'} ${p.title || '未知题目'}</span>
+            ${overdueTag}
             <span class="sr-queue-item-diff ${diffClass}">${diffLabel}</span>
           </div>
           ${isCurrent ? `
             <div class="sr-queue-rating">
-              <button class="sr-rate forgot" data-slug="${p.slug}" data-rating="0">😵忘了</button>
-              <button class="sr-rate hard" data-slug="${p.slug}" data-rating="1">😤难</button>
-              <button class="sr-rate good" data-slug="${p.slug}" data-rating="2">👍记得</button>
-              <button class="sr-rate easy" data-slug="${p.slug}" data-rating="3">😊简单</button>
+              <button class="sr-rate forgot" data-slug="${p.slug || ''}" data-rating="0">😵忘了</button>
+              <button class="sr-rate hard" data-slug="${p.slug || ''}" data-rating="1">😤难</button>
+              <button class="sr-rate good" data-slug="${p.slug || ''}" data-rating="2">👍记得</button>
+              <button class="sr-rate easy" data-slug="${p.slug || ''}" data-rating="3">😊简单</button>
             </div>
           ` : `
             <div class="sr-queue-item-go">
-              <button class="sr-go-btn" data-url="${p.url}">跳转 →</button>
+              <button class="sr-go-btn" data-url="${p.url || ''}">跳转 →</button>
             </div>
           `}
         </div>
@@ -676,6 +710,162 @@ class LeetCodeHelper {
       window.location.href = next.url;
     } else {
       this.showNotification('🎉 所有复习都完成了！', 'success');
+    }
+  }
+
+  // ============ 迷你面板 ============
+
+  toggleDashboard() {
+    const existing = document.getElementById('leetcode-sr-dashboard');
+    if (existing) {
+      existing.classList.toggle('sr-dash-hidden');
+      if (!existing.classList.contains('sr-dash-hidden')) {
+        this.refreshDashboard();
+      }
+      return;
+    }
+    this.createDashboard();
+  }
+
+  async createDashboard() {
+    const panel = document.createElement('div');
+    panel.id = 'leetcode-sr-dashboard';
+    panel.className = 'sr-dash-panel';
+    panel.innerHTML = `
+      <div class="sr-dash-header">
+        <span class="sr-dash-title">LeetCode Review</span>
+        <button class="sr-dash-close" id="sr-dash-close">&times;</button>
+      </div>
+      <div class="sr-dash-body" id="sr-dash-body">
+        <div class="sr-dash-loading">加载中...</div>
+      </div>
+    `;
+    document.body.appendChild(panel);
+
+    document.getElementById('sr-dash-close').addEventListener('click', () => {
+      panel.classList.add('sr-dash-hidden');
+    });
+
+    // 点击面板外关闭
+    document.addEventListener('click', (e) => {
+      if (!panel.contains(e.target) &&
+          e.target.id !== 'leetcode-sr-dash-btn' &&
+          !e.target.closest('#leetcode-sr-dash-btn')) {
+        panel.classList.add('sr-dash-hidden');
+      }
+    });
+
+    await this.refreshDashboard();
+  }
+
+  async refreshDashboard() {
+    const body = document.getElementById('sr-dash-body');
+    if (!body) return;
+
+    try {
+      const [planRes, streakRes, achieveRes, statsRes, practiceRes] = await Promise.all([
+        this.safeSendMessage({ action: 'getDailyPlan' }),
+        this.safeSendMessage({ action: 'getStreakData' }),
+        this.safeSendMessage({ action: 'getAchievements' }),
+        this.safeSendMessage({ action: 'getStats' }),
+        this.safeSendMessage({ action: 'getTodayPractice' })
+      ]);
+
+      const plan = planRes?.plan || {};
+      const streak = streakRes?.streak || {};
+      const achievements = achieveRes?.achievements || [];
+      const stats = statsRes?.stats || {};
+      const todayPractice = practiceRes?.practice || [];
+
+      // Ensure all streak values have fallbacks
+      const currentStreak = streak.currentStreak ?? 0;
+      const longestStreak = streak.longestStreak ?? 0;
+      const successRate = streak.successRate ?? 0;
+      const totalActiveDays = streak.totalActiveDays ?? 0;
+
+      const unlockedCount = achievements.filter(a => a.unlocked).length;
+      const recentBadges = achievements.filter(a => a.unlocked).slice(-4);
+
+      const reviewPct = plan.reviewTarget > 0
+        ? Math.min(100, Math.round((plan.reviewsDone || 0) / plan.reviewTarget * 100)) : 0;
+      const newPct = (plan.goals?.dailyNew || 3) > 0
+        ? Math.min(100, Math.round((plan.newDone || 0) / (plan.goals?.dailyNew || 3) * 100)) : 0;
+
+      const overdueCount = plan.overdueCount || 0;
+      const backlogDays = plan.backlogDays || 0;
+      const todayPracticeCount = todayPractice.length;
+
+      body.innerHTML = `
+        <div class="sr-dash-streak ${currentStreak >= 7 ? 'hot' : ''}">
+          <span class="sr-dash-fire">${currentStreak > 0 ? '🔥' : '❄️'}</span>
+          <span class="sr-dash-streak-num">${currentStreak}</span>
+          <span class="sr-dash-streak-label">天连续</span>
+          <span class="sr-dash-streak-sub">最长 ${longestStreak}天 · 今日 ${todayPracticeCount}题</span>
+        </div>
+
+        ${overdueCount > 0 ? `
+        <div class="sr-dash-backlog">
+          ⚠️ ${overdueCount}道逾期 · 约${backlogDays}天消化
+        </div>` : ''}
+
+        <div class="sr-dash-plan">
+          <div class="sr-dash-plan-row">
+            <div class="sr-dash-plan-item">
+              <div class="sr-dash-plan-val">${plan.dueCount || 0}</div>
+              <div class="sr-dash-plan-lbl">待复习</div>
+            </div>
+            <div class="sr-dash-plan-item">
+              <div class="sr-dash-ring-wrap">
+                <svg width="36" height="36" viewBox="0 0 36 36">
+                  <circle cx="18" cy="18" r="15" fill="none" stroke="#e5e7eb" stroke-width="3"/>
+                  <circle cx="18" cy="18" r="15" fill="none" stroke="#667eea" stroke-width="3"
+                    stroke-dasharray="${reviewPct * 0.94} 94" stroke-linecap="round"
+                    style="transform:rotate(-90deg);transform-origin:center"/>
+                </svg>
+                <span class="sr-dash-ring-text">${plan.reviewsDone || 0}/${plan.reviewTarget || 0}</span>
+              </div>
+              <div class="sr-dash-plan-lbl">复习</div>
+            </div>
+            <div class="sr-dash-plan-item">
+              <div class="sr-dash-ring-wrap">
+                <svg width="36" height="36" viewBox="0 0 36 36">
+                  <circle cx="18" cy="18" r="15" fill="none" stroke="#e5e7eb" stroke-width="3"/>
+                  <circle cx="18" cy="18" r="15" fill="none" stroke="#f59e0b" stroke-width="3"
+                    stroke-dasharray="${newPct * 0.94} 94" stroke-linecap="round"
+                    style="transform:rotate(-90deg);transform-origin:center"/>
+                </svg>
+                <span class="sr-dash-ring-text">${plan.newDone || 0}/${plan.goals?.dailyNew || 3}</span>
+              </div>
+              <div class="sr-dash-plan-lbl">新题</div>
+            </div>
+            <div class="sr-dash-plan-item">
+              <div class="sr-dash-plan-val sr-dash-time">~${plan.estimatedMinutes || 0}<small>m</small></div>
+              <div class="sr-dash-plan-lbl">剩余</div>
+            </div>
+          </div>
+        </div>
+
+        ${(plan.weakTags?.length || 0) > 0 ? `
+        <div class="sr-dash-weak">
+          <span class="sr-dash-weak-lbl">🎯 盲区</span>
+          ${(plan.weakTags || []).slice(0, 3).map(t => `<span class="sr-dash-weak-tag">${t.tag || '?'}</span>`).join('')}
+        </div>` : ''}
+
+        <div class="sr-dash-stats">
+          <div class="sr-dash-stat"><span class="sr-dash-stat-val">${stats.total || 0}</span><span class="sr-dash-stat-lbl">总题</span></div>
+          <div class="sr-dash-stat"><span class="sr-dash-stat-val">${successRate || 0}%</span><span class="sr-dash-stat-lbl">成功率</span></div>
+          <div class="sr-dash-stat"><span class="sr-dash-stat-val">${totalActiveDays || 0}</span><span class="sr-dash-stat-lbl">活跃天</span></div>
+        </div>
+
+        ${(recentBadges?.length || 0) > 0 ? `
+        <div class="sr-dash-badges">
+          ${(recentBadges || []).map(a => `<span class="sr-dash-badge" title="${a.name || '?'}: ${a.desc || ''}}">${a.icon || '🏆'}</span>`).join('')}
+          ${(unlockedCount || 0) > 4 ? `<span class="sr-dash-badge-more">+${(unlockedCount || 0) - 4}</span>` : ''}
+        </div>` : ''}
+      `;
+    } catch (e) {
+      body.innerHTML = `<div class="sr-dash-loading">加载失败，请刷新页面</div>`;
+      console.error('Dashboard error:', e);
     }
   }
 

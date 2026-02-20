@@ -2,13 +2,12 @@
 
 class SpacedRepetitionManager {
   constructor() {
-    this.defaultIntervals = [1, 3, 7, 14, 30, 60];
     this.init();
   }
 
-  async getReviewIntervals() {
-    const result = await chrome.storage.local.get('customIntervals');
-    return result.customIntervals || this.defaultIntervals;
+  async getFirstInterval() {
+    const result = await chrome.storage.local.get('firstInterval');
+    return result.firstInterval ?? 1;
   }
 
   // ============ SM-2 自适应算法 ============
@@ -125,6 +124,11 @@ class SpacedRepetitionManager {
           sendResponse({ practice });
           break;
         }
+        case 'getAllPractice': {
+          const practiced = await this.getAllPractice();
+          sendResponse({ practiced });
+          break;
+        }
         case 'getTagStats': {
           const tagStats = await this.getTagStats();
           sendResponse({ tagStats });
@@ -140,13 +144,23 @@ class SpacedRepetitionManager {
           sendResponse(refreshResult);
           break;
         }
-        case 'getIntervals': {
-          const intervals = await this.getReviewIntervals();
-          sendResponse({ intervals });
+        case 'getFirstInterval': {
+          const firstInterval = await this.getFirstInterval();
+          sendResponse({ firstInterval });
           break;
         }
-        case 'setIntervals': {
-          await chrome.storage.local.set({ customIntervals: request.intervals });
+        case 'setFirstInterval': {
+          await chrome.storage.local.set({ firstInterval: request.value });
+          sendResponse({ success: true });
+          break;
+        }
+        case 'getAutoLogOnReview': {
+          const result = await chrome.storage.local.get('autoLogOnReview');
+          sendResponse({ enabled: result.autoLogOnReview ?? false });
+          break;
+        }
+        case 'setAutoLogOnReview': {
+          await chrome.storage.local.set({ autoLogOnReview: request.enabled });
           sendResponse({ success: true });
           break;
         }
@@ -266,6 +280,7 @@ class SpacedRepetitionManager {
 
       practiceLog.push({
         ...problemInfo,
+        solved: problemInfo.solved ?? true, // 默认为 true（兼容旧数据）
         duration: problemInfo.duration || null,
         notes: problemInfo.notes || null,
         loggedAt: Date.now()
@@ -290,6 +305,11 @@ class SpacedRepetitionManager {
     const todayTs = today.getTime();
 
     return practiceLog.filter(p => p.loggedAt >= todayTs);
+  }
+
+  async getAllPractice() {
+    const storageResult = await chrome.storage.local.get('practiceLog');
+    return storageResult.practiceLog || [];
   }
 
   async getTagStats() {
@@ -468,7 +488,31 @@ class SpacedRepetitionManager {
 
     const reviewsDone = todayCompleted.length;
     const newDone = todayPractice.length;
-    const reviewTarget = isWeekend ? Math.ceil(goals.dailyReview * 1.5) : goals.dailyReview;
+
+    // 堆积保护：如果积压太多，动态提高今日目标，但不超过时间预算
+    const baseTarget = isWeekend ? Math.ceil(goals.dailyReview * 1.5) : goals.dailyReview;
+    const maxByTime = Math.floor((goals.timeBudget || 45) / 5); // 每道复习~5min
+
+    // 计算逾期统计
+    const now = Date.now();
+    const overdueProblems = dueReviews.filter(p => {
+      const nr = p.nextReviewDate;
+      if (!nr) return false;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return nr < today.getTime();
+    });
+    const overdueCount = overdueProblems.length;
+
+    // 如果积压 > 基础目标的 2 倍，进入"清仓模式"，适度增加目标
+    let reviewTarget = baseTarget;
+    let backlogMode = false;
+    if (overdueCount > baseTarget * 2) {
+      backlogMode = true;
+      // 在基础目标基础上最多翻倍，但不超过时间预算允许量
+      reviewTarget = Math.min(baseTarget * 2, maxByTime);
+    }
+
     const recommendedReviews = Math.min(dueReviews.length, reviewTarget);
 
     // ~5min per review, ~15min per new problem
@@ -476,10 +520,16 @@ class SpacedRepetitionManager {
     const newMins = Math.max(0, goals.dailyNew - newDone) * 15;
     const estimatedMinutes = Math.max(0, reviewMins + newMins);
 
+    // 积压需要多少天消化完（按每天 baseTarget 复习）
+    const backlogDays = overdueCount > 0 ? Math.ceil(overdueCount / baseTarget) : 0;
+
     return {
       isWeekend,
+      backlogMode,
       goals,
       dueCount: dueReviews.length,
+      overdueCount,
+      backlogDays,
       reviewsDone,
       newDone,
       reviewTarget,
@@ -697,9 +747,8 @@ class SpacedRepetitionManager {
         return { success: false, error: '这道题已经在复习计划中了' };
       }
 
-      // 用自定义间隔的第一个值作为首次复习间隔
-      const intervals = await this.getReviewIntervals();
-      const firstInterval = intervals[0] || 1;
+      // 用用户设置的首次间隔
+      const firstInterval = await this.getFirstInterval();
       const nextReviewDate = this.dateOffset(firstInterval);
 
       problemsMap[problemInfo.slug] = {
@@ -722,6 +771,13 @@ class SpacedRepetitionManager {
       await chrome.storage.local.set({ problems: problemsMap });
       console.log('✅ Problem added:', problemInfo.slug, `(first review in ${firstInterval}d)`);
 
+      // 如果开启了"加入复习时同步记录刷题"，自动记录一次
+      const autoLogResult = await chrome.storage.local.get('autoLogOnReview');
+      if (autoLogResult.autoLogOnReview === true) {
+        await this.logPractice(problemInfo);
+        console.log('✅ Also logged practice due to autoLogOnReview setting');
+      }
+
       return {
         success: true,
         nextReviewDate,
@@ -735,20 +791,7 @@ class SpacedRepetitionManager {
     }
   }
 
-  async generateReviewDates() {
-    const intervals = await this.getReviewIntervals();
-    const now = new Date();
-    const dates = [];
-
-    for (const interval of intervals) {
-      const reviewDate = new Date(now);
-      reviewDate.setDate(reviewDate.getDate() + interval);
-      reviewDate.setHours(20, 0, 0, 0);
-      dates.push(reviewDate.getTime());
-    }
-
-    return dates;
-  }
+  // generateReviewDates removed — SM-2 handles scheduling dynamically
 
   async checkProblemStatus(slug) {
     const storageResult = await chrome.storage.local.get('problems');
