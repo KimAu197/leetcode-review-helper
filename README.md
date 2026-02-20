@@ -16,13 +16,16 @@ A Chrome extension that uses **SM-2 adaptive spaced repetition** to intelligentl
 - **SM-2 Algorithm**: After each review, rate yourself (Easy / Good / Hard / Forgot) — the system dynamically adjusts your next review interval
 - **Priority Scoring**: Reviews are ranked by urgency (overdue days, difficulty, past performance, ease factor)
 - **SPA Navigation Support**: Buttons auto-update when switching problems without page refresh
+- **AC Status Tracking**: Mark each attempt as solved/unsolved to track your success rate
 
 ### Coach — Smart Daily Planning
 
 - **Daily Plan Card**: Shows due reviews, progress rings, new problem targets, and estimated time remaining
 - **Blind Spot Detection**: Analyzes your weak tags (low EF + high fail rate) and recommends focus areas
+- **Backlog Protection**: Automatically adjusts daily review targets when problems pile up
 - **Weekend Catch-Up Mode**: Auto 1.5x review target on weekends to clear backlogs
 - **Customizable Goals**: Set daily new/review counts and time budget in Settings
+- **Mini Dashboard**: In-page quick stats panel showing streak, plan progress, and weak tags
 
 ### Gamification
 
@@ -30,13 +33,22 @@ A Chrome extension that uses **SM-2 adaptive spaced repetition** to intelligentl
 - **12 Achievement Badges**: Milestones for reviews, streaks, problems solved, and success rate
 - **"Top 3 Today" Card**: Shareable card showing your 3 highest-priority reviews — screenshot-ready
 - **Review Success Rate**: Personal stats dashboard with win rate tracking
+- **Today's AC Rate**: Circular progress chart showing daily acceptance rate
 
 ### Review Queue (LeetCode Page Overlay)
 
 - **Floating Queue Panel**: Bottom-right panel on LeetCode pages showing all due reviews sorted by priority
+- **Overdue Indicators**: Flashing red badges for overdue problems
 - **In-Page Rating**: Rate the current problem directly from the queue — no need to open the popup
 - **One-Click Next**: "Next →" button jumps to the highest-priority problem
 - **Auto-Refresh**: Queue updates after each rating and periodically
+
+### Practice History & Calendar
+
+- **Interactive Month Calendar**: GitHub-style heatmap with clickable year/month selectors
+- **Practice History Tab**: View all solved problems with timestamps and AC status
+- **Daily Drill-Down**: Click any date to see detailed practice records for that day
+- **Auto-Sync Option**: Automatically log problems when adding to review schedule
 
 ### More
 
@@ -103,18 +115,20 @@ cd leetcode-review-helper
 1. Open any problem page (`leetcode.com` or `leetcode.cn`)
 2. **"Log"** button (orange) — record practice without scheduling reviews
 3. **"Review"** button (purple) — add to spaced repetition schedule
-4. Both buttons optionally prompt for solve time and notes
-5. **Queue panel** (bottom-right) — see all due reviews, rate current problem, jump to next
+4. Both buttons optionally prompt for solve time, notes, and AC status (solved/unsolved)
+5. **Dashboard button** (below main buttons) — open in-page mini dashboard
+6. **Queue panel** (bottom-right) — see all due reviews, rate current problem, jump to next
 
 ### In the Popup
 
 | Tab | Description |
 |-----|-------------|
-| Today | Daily plan, top 3 card, difficulty chart, practice log |
-| Review | Due reviews with 4-rating buttons, completed reviews |
-| Stats | Streak, achievements, difficulty donut, daily bar chart |
+| Today | Daily plan, top 3 card, today's AC rate, difficulty chart, practice log |
+| Review | Due reviews (with overdue badges) and 4-rating buttons, completed reviews |
+| Practiced | Interactive month calendar (heatmap), click dates to view daily records |
+| Stats | Streak, achievements, difficulty donut, daily bar chart, cumulative stats |
 | Tags | Browse problems by tag, refresh from LeetCode API |
-| Settings | Daily goals, review intervals, Calendar, data management |
+| Settings | Daily goals, first review interval, auto-log toggle, Calendar, data management |
 
 ## Tech Stack
 
@@ -156,8 +170,22 @@ leetcode-spaced-repetition/
 | Calendar connection failed | Check Client ID; add yourself as test user |
 | No tags showing | Click "Refresh Tags" in Tags tab |
 | Queue panel not visible | Only appears when there are due reviews |
+| Streak shows "undefined" | Fixed in latest version — all stats now default to 0 |
+| Calendar not updating | Calendar auto-updates; use month/year selectors to navigate |
 
 ## Changelog
+
+### v2.1.0 (Latest)
+- **AC Status Tracking**: Record whether each problem was solved or unsolved
+- **Today's AC Rate**: Circular chart showing daily acceptance rate
+- **Interactive Calendar**: Month-view heatmap with clickable year/month selectors (navigate 5 years back)
+- **Practiced Tab**: Dedicated tab for viewing all practice history with calendar
+- **Mini Dashboard**: In-page floating panel showing streak, plan, weak tags, and today's practice count
+- **Backlog Protection**: Auto-adjusts daily review targets when problems pile up
+- **Overdue Indicators**: Flashing red badges for overdue problems in queue and review cards
+- **Auto-Log on Review**: Optional setting to automatically log practice when adding to review
+- **Simplified Settings**: First review interval only (SM-2 handles rest)
+- **Bug Fixes**: All undefined values now default to 0 or appropriate fallbacks
 
 ### v2.0.0
 - SM-2 adaptive spaced repetition algorithm
@@ -214,13 +242,16 @@ If you find this useful, give it a ⭐!
 - **SM-2 算法**：每次复习后自评（简单 / 记得 / 困难 / 忘了），系统动态调整下次复习间隔
 - **优先级评分**：根据逾期天数、难度、历史表现、掌握度自动排序复习
 - **SPA 导航支持**：切换题目时按钮自动更新，无需刷新页面
+- **AC 状态追踪**：标记每次尝试是否 AC，追踪成功率
 
 ### 教练 — 智能每日计划
 
 - **每日计划卡片**：显示待复习数量、进度环、新题目标、预计剩余时间
 - **盲区检测**：分析薄弱标签（低 EF + 高失败率），推荐重点突破方向
+- **积压保护**：题目堆积时自动调整每日复习目标
 - **周末清仓模式**：周末自动将复习目标 ×1.5，清理积压
 - **自定义目标**：在设置中调整每日新题/复习数量和时间预算
+- **迷你面板**：页内快速统计面板，显示连续天数、计划进度、薄弱标签
 
 ### 成就系统
 
@@ -228,13 +259,22 @@ If you find this useful, give it a ⭐!
 - **12 个成就徽章**：复习次数、连续天数、题目数量、成功率里程碑
 - **"今日最该复习" 卡片**：展示优先级最高的 3 道题，适合截图分享
 - **复习成功率**：个人数据面板，追踪胜率
+- **今日 AC 率**：环形进度图显示每日通过率
 
 ### 复习队列（LeetCode 页面浮窗）
 
 - **浮动队列面板**：LeetCode 页面右下角，按优先级排列所有待复习题
+- **逾期指示器**：闪烁的红色徽章标记逾期题目
 - **页内评分**：直接在队列中对当前题目评分，无需打开弹窗
 - **一键下一题**："下一题 →" 跳转最高优先级题目
 - **自动刷新**：每次评分后队列自动更新
+
+### 刷题历史 & 日历
+
+- **交互式月历**：GitHub 风格热力图，可点击年份/月份选择器
+- **已刷题目标签页**：查看所有做过的题目，带时间戳和 AC 状态
+- **每日详情**：点击任意日期查看该天的详细刷题记录
+- **自动同步选项**：添加到复习计划时自动记录刷题
 
 ### 更多
 
@@ -301,18 +341,20 @@ cd leetcode-review-helper
 1. 打开任意题目页面（支持 `leetcode.com` 和 `leetcode.cn`）
 2. **"记录"** 按钮（橙色）—— 记录刷题，不加入复习计划
 3. **"复习"** 按钮（紫色）—— 加入间隔重复计划
-4. 两个按钮都可选填完成时间和心得
-5. **队列面板**（右下角）—— 查看所有待复习题、评分当前题、跳转下一题
+4. 两个按钮都可选填完成时间、心得和 AC 状态（做出来/没做出来）
+5. **面板按钮**（主按钮下方）—— 打开页内迷你统计面板
+6. **队列面板**（右下角）—— 查看所有待复习题、评分当前题、跳转下一题
 
 ### 在弹窗中
 
 | 标签页 | 内容 |
 |--------|------|
-| 今日 | 每日计划、Top 3 卡片、难度分布、刷题记录 |
-| 复习 | 待复习（4 级评分按钮）、已完成复习 |
-| 统计 | 连续天数、成就、难度甜甜圈、每日柱状图 |
+| 今日 | 每日计划、Top 3 卡片、今日 AC 率、难度分布、刷题记录 |
+| 复习 | 待复习（带逾期徽章）和 4 级评分按钮、已完成复习 |
+| 已刷 | 交互式月历（热力图），点击日期查看每日记录 |
+| 统计 | 连续天数、成就、难度甜甜圈、每日柱状图、累积统计 |
 | 标签 | 按标签浏览题目，从 LeetCode API 刷新 |
-| 设置 | 每日目标、复习间隔、日历、数据管理 |
+| 设置 | 每日目标、首次复习间隔、自动记录开关、日历、数据管理 |
 
 ## 技术栈
 
@@ -346,6 +388,18 @@ leetcode-spaced-repetition/
 - 完全开源
 
 ## 更新日志
+
+### v2.1.0（最新版）
+- **AC 状态追踪**：记录每道题是否做出来/没做出来
+- **今日 AC 率**：环形图表显示每日通过率
+- **交互式日历**：月视图热力图，可点击年份/月份选择器（回溯 5 年）
+- **已刷题目标签页**：专门查看所有刷题历史的标签页，带日历
+- **迷你面板**：页内浮动面板显示连续天数、计划、薄弱标签、今日刷题数
+- **积压保护**：题目堆积时自动调整每日复习目标
+- **逾期指示器**：队列和复习卡片中逾期题目有闪烁的红色徽章
+- **自动记录刷题**：可选设置，加入复习时自动记录刷题
+- **简化设置**：仅设置首次复习间隔（SM-2 算法处理后续间隔）
+- **Bug 修复**：所有 undefined 值现在默认为 0 或适当的后备值
 
 ### v2.0.0
 - SM-2 自适应间隔重复算法
