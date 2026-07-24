@@ -291,7 +291,7 @@ class SpacedRepetitionManager {
       const todayTs = today.getTime();
 
       const alreadyLogged = practiceLog.some(
-        p => p.slug === problemInfo.slug && p.loggedAt >= todayTs
+        p => p.slug === problemInfo.slug && p.loggedAt >= todayTs && p.type !== 'review'
       );
 
       if (alreadyLogged) {

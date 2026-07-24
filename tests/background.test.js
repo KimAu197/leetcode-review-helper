@@ -99,6 +99,22 @@ test('practice reads exclude review entries but keep legacy practice', async () 
   assert.equal(storage.practiceLog.length, 3, 'read filtering must not delete stored data');
 });
 
+test('explicit practice logging succeeds when only a review entry exists today', async () => {
+  const { send, storage } = loadBackground({
+    practiceLog: [
+      { slug: 'reviewed', type: 'review', loggedAt: Date.now() }
+    ]
+  });
+
+  const response = await send('logPractice', {
+    problem: { slug: 'reviewed', title: 'Reviewed then practiced', solved: true }
+  });
+
+  assert.equal(response.success, true);
+  assert.equal(storage.practiceLog.length, 2);
+  assert.equal(storage.practiceLog.at(-1).type, 'practice');
+});
+
 test('marking a review hard does not append to practiceLog', async () => {
   const { send, storage } = loadBackground({
     practiceLog: [{ slug: 'new', type: 'practice', loggedAt: Date.now() }],
