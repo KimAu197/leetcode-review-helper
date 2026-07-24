@@ -199,6 +199,16 @@ class SpacedRepetitionManager {
           sendResponse({ queue });
           break;
         }
+        case 'getViewQueue': {
+          const viewQueue = await this.getViewQueue();
+          sendResponse({ viewQueue });
+          break;
+        }
+        case 'markProblemViewed': {
+          const viewResult = await this.markProblemViewed(request.slug);
+          sendResponse(viewResult);
+          break;
+        }
         case 'markReviewed': {
           const reviewResult = await this.markProblemReviewed(request.slug, request.rating);
           sendResponse(reviewResult);
@@ -207,6 +217,16 @@ class SpacedRepetitionManager {
         case 'deleteProblem': {
           await this.deleteProblem(request.slug);
           sendResponse({ success: true });
+          break;
+        }
+        case 'countStaleReviews': {
+          const stale = await this.getStaleReviewProblems();
+          sendResponse({ count: stale.length });
+          break;
+        }
+        case 'clearStaleReviews': {
+          const result = await this.clearStaleReviews();
+          sendResponse(result);
           break;
         }
         case 'getDailyPlan': {
@@ -236,6 +256,16 @@ class SpacedRepetitionManager {
         }
         case 'setGoals': {
           await chrome.storage.local.set({ goals: request.goals });
+          sendResponse({ success: true });
+          break;
+        }
+        case 'getDailyViewGoal': {
+          const result = await chrome.storage.local.get('dailyViewGoal');
+          sendResponse({ goal: result.dailyViewGoal ?? 5 });
+          break;
+        }
+        case 'setDailyViewGoal': {
+          await chrome.storage.local.set({ dailyViewGoal: request.goal });
           sendResponse({ success: true });
           break;
         }
@@ -270,6 +300,7 @@ class SpacedRepetitionManager {
 
       practiceLog.push({
         ...problemInfo,
+        type: 'practice', // 标记为新题刷题
         solved: problemInfo.solved ?? true, // 默认为 true（兼容旧数据）
         duration: problemInfo.duration || null,
         notes: problemInfo.notes || null,
@@ -294,12 +325,12 @@ class SpacedRepetitionManager {
     today.setHours(0, 0, 0, 0);
     const todayTs = today.getTime();
 
-    return practiceLog.filter(p => p.loggedAt >= todayTs);
+    return practiceLog.filter(p => p.loggedAt >= todayTs && p.type !== 'review');
   }
 
   async getAllPractice() {
     const storageResult = await chrome.storage.local.get('practiceLog');
-    return storageResult.practiceLog || [];
+    return (storageResult.practiceLog || []).filter(p => p.type !== 'review');
   }
 
   async getTagStats() {
@@ -440,7 +471,7 @@ class SpacedRepetitionManager {
       ).length;
 
       dailyCounts.push({
-        date: dayStart.toISOString().slice(0, 10),
+        date: `${dayStart.getFullYear()}-${String(dayStart.getMonth() + 1).padStart(2, '0')}-${String(dayStart.getDate()).padStart(2, '0')}`,
         label: `${dayStart.getMonth() + 1}/${dayStart.getDate()}`,
         practice: practiceCount,
         review: reviewCount,
@@ -569,30 +600,36 @@ class SpacedRepetitionManager {
     const problemsMap = storageResult.problems || {};
     const practiceLog = storageResult.practiceLog || [];
 
+    // 使用辅助函数生成本地时区的日期键
+    const toLocalDateKey = (timestamp) => {
+      const d = new Date(timestamp);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+
     // Collect all active dates
     const activeDates = new Set();
     for (const p of Object.values(problemsMap)) {
-      (p.completedReviews || []).forEach(ts => activeDates.add(new Date(ts).toISOString().slice(0, 10)));
+      (p.completedReviews || []).forEach(ts => activeDates.add(toLocalDateKey(ts)));
     }
-    practiceLog.forEach(p => activeDates.add(new Date(p.loggedAt).toISOString().slice(0, 10)));
+    practiceLog.forEach(p => activeDates.add(toLocalDateKey(p.loggedAt)));
 
     // Current streak
     const today = new Date(); today.setHours(0, 0, 0, 0);
     let currentStreak = 0;
     let check = new Date(today);
 
-    if (!activeDates.has(check.toISOString().slice(0, 10))) {
+    if (!activeDates.has(toLocalDateKey(check.getTime()))) {
       check.setDate(check.getDate() - 1);
-      if (!activeDates.has(check.toISOString().slice(0, 10))) {
+      if (!activeDates.has(toLocalDateKey(check.getTime()))) {
         currentStreak = 0;
       } else {
-        while (activeDates.has(check.toISOString().slice(0, 10))) {
+        while (activeDates.has(toLocalDateKey(check.getTime()))) {
           currentStreak++;
           check.setDate(check.getDate() - 1);
         }
       }
     } else {
-      while (activeDates.has(check.toISOString().slice(0, 10))) {
+      while (activeDates.has(toLocalDateKey(check.getTime()))) {
         currentStreak++;
         check.setDate(check.getDate() - 1);
       }
@@ -894,6 +931,133 @@ class SpacedRepetitionManager {
 
     delete problemsMap[slug];
     await chrome.storage.local.set({ problems: problemsMap });
+  }
+
+  getNextReviewTimestamp(problem) {
+    if (problem.nextReviewDate) return problem.nextReviewDate;
+    const rd = problem.reviewDates;
+    const ci = problem.currentInterval || 0;
+    if (rd && ci < rd.length) return rd[ci];
+    return null;
+  }
+
+  /** 下次复习日早于「今天 0 点往前 30 天」的题目（长期逾期堆积） */
+  async getStaleReviewProblems() {
+    const storageResult = await chrome.storage.local.get('problems');
+    const problemsMap = storageResult.problems || {};
+    const cutoff = new Date();
+    cutoff.setHours(0, 0, 0, 0);
+    cutoff.setDate(cutoff.getDate() - 30);
+    const cutoffTs = cutoff.getTime();
+
+    return Object.values(problemsMap).filter((p) => {
+      const next = this.getNextReviewTimestamp(p);
+      return next != null && next < cutoffTs;
+    });
+  }
+
+  async clearStaleReviews() {
+    const stale = await this.getStaleReviewProblems();
+    if (stale.length === 0) {
+      return { success: true, removed: 0 };
+    }
+    const storageResult = await chrome.storage.local.get('problems');
+    const problemsMap = storageResult.problems || {};
+    const removeSlugs = new Set(stale.map((p) => p.slug));
+    removeSlugs.forEach((slug) => {
+      delete problemsMap[slug];
+    });
+    await chrome.storage.local.set({ problems: problemsMap });
+    return { success: true, removed: stale.length };
+  }
+
+  // ============ 看题队列（不做题，只看思路） ============
+
+  async getViewQueue() {
+    const storageResult = await chrome.storage.local.get(['problems', 'dailyViewGoal', 'viewedToday']);
+    const problemsMap = storageResult.problems || {};
+    const dailyViewGoal = storageResult.dailyViewGoal ?? 5;
+    const viewedToday = storageResult.viewedToday || [];
+
+    // 筛选条件：做过但没AC的题目（复习评分 <= 1）
+    const viewCandidates = Object.values(problemsMap).filter(p => {
+      const history = p.reviewHistory || [];
+      if (history.length === 0) return false;
+
+      // 最近一次复习是 Forgot 或 Hard
+      const lastReview = history[history.length - 1];
+      return lastReview.rating <= 1;
+    });
+
+    // 排除今天已看过的
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayTs = today.getTime();
+
+    const todayViewed = viewedToday.filter(v => v.viewedAt >= todayTs);
+    const viewedSlugs = new Set(todayViewed.map(v => v.slug));
+
+    const queue = viewCandidates
+      .filter(p => !viewedSlugs.has(p.slug))
+      .sort((a, b) => {
+        // 按优先级排序：最近复习失败的优先
+        const aLast = (a.reviewHistory || [])[a.reviewHistory.length - 1];
+        const bLast = (b.reviewHistory || [])[b.reviewHistory.length - 1];
+        return (bLast?.date || 0) - (aLast?.date || 0);
+      })
+      .slice(0, dailyViewGoal);
+
+    return {
+      queue,
+      viewedCount: todayViewed.length,
+      totalGoal: dailyViewGoal
+    };
+  }
+
+  async markProblemViewed(slug) {
+    const storageResult = await chrome.storage.local.get(['problems', 'viewedToday']);
+    const problemsMap = storageResult.problems || {};
+    const viewedToday = storageResult.viewedToday || [];
+
+    if (!problemsMap[slug]) {
+      return { success: false, error: '题目不存在' };
+    }
+
+    const problem = problemsMap[slug];
+
+    // 记录今日已看
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayTs = today.getTime();
+
+    // 清理非今日的记录
+    const cleanedViewed = viewedToday.filter(v => v.viewedAt >= todayTs);
+
+    // 检查是否已记录
+    if (!cleanedViewed.some(v => v.slug === slug)) {
+      cleanedViewed.push({
+        slug,
+        viewedAt: Date.now()
+      });
+    }
+
+    await chrome.storage.local.set({ viewedToday: cleanedViewed });
+
+    // 自动安排第二天复习（将 nextReviewDate 设置为明天）
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(20, 0, 0, 0);
+    problem.nextReviewDate = tomorrow.getTime();
+    problem.currentIntervalDays = 1;
+
+    await chrome.storage.local.set({ problems: problemsMap });
+
+    console.log(`👀 Viewed: ${slug}, scheduled for tomorrow`);
+
+    return {
+      success: true,
+      message: '已标记为看过，明天会再次复习'
+    };
   }
 
   // ============ 每日提醒 ============

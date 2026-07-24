@@ -1,0 +1,143 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const test = require('node:test');
+const vm = require('node:vm');
+
+const backgroundSource = fs.readFileSync(
+  path.join(__dirname, '..', 'background.js'),
+  'utf8'
+);
+
+function loadBackground(initialStorage = {}) {
+  const storage = structuredClone(initialStorage);
+  let messageListener;
+
+  const chrome = {
+    action: {
+      setBadgeBackgroundColor() {},
+      setBadgeText() {}
+    },
+    alarms: {
+      create() {},
+      onAlarm: { addListener() {} }
+    },
+    notifications: {
+      create(_id, _options, callback) {
+        if (callback) callback();
+      }
+    },
+    runtime: {
+      getURL(value) { return value; },
+      lastError: null,
+      onInstalled: { addListener() {} },
+      onMessage: {
+        addListener(listener) {
+          messageListener = listener;
+        }
+      }
+    },
+    storage: {
+      local: {
+        async get(keys) {
+          if (typeof keys === 'string') {
+            return Object.hasOwn(storage, keys) ? { [keys]: storage[keys] } : {};
+          }
+          if (Array.isArray(keys)) {
+            return Object.fromEntries(
+              keys.filter(key => Object.hasOwn(storage, key)).map(key => [key, storage[key]])
+            );
+          }
+          return { ...storage };
+        },
+        async set(values) {
+          Object.assign(storage, values);
+        }
+      }
+    }
+  };
+
+  vm.runInNewContext(backgroundSource, {
+    chrome,
+    console: { error() {}, log() {}, warn() {} },
+    Date,
+    fetch,
+    setTimeout,
+    clearTimeout
+  });
+
+  const send = (action, payload = {}) => new Promise((resolve, reject) => {
+    if (!messageListener) {
+      reject(new Error('background message listener was not registered'));
+      return;
+    }
+
+    const timeout = setTimeout(() => reject(new Error(`message timed out: ${action}`)), 1000);
+    messageListener({ action, ...payload }, {}, response => {
+      clearTimeout(timeout);
+      resolve(response);
+    });
+  });
+
+  return { send, storage };
+}
+
+test('practice reads exclude review entries but keep legacy practice', async () => {
+  const { send, storage } = loadBackground({
+    practiceLog: [
+      { slug: 'new', type: 'practice', loggedAt: Date.now() },
+      { slug: 'legacy', loggedAt: Date.now() },
+      { slug: 'reviewed', type: 'review', loggedAt: Date.now() }
+    ]
+  });
+
+  const todayResponse = await send('getTodayPractice');
+  const allResponse = await send('getAllPractice');
+
+  assert.deepEqual(Array.from(todayResponse.practice, problem => problem.slug), ['new', 'legacy']);
+  assert.deepEqual(Array.from(allResponse.practiced, problem => problem.slug), ['new', 'legacy']);
+  assert.equal(storage.practiceLog.length, 3, 'read filtering must not delete stored data');
+});
+
+test('marking a review hard does not append to practiceLog', async () => {
+  const { send, storage } = loadBackground({
+    practiceLog: [{ slug: 'new', type: 'practice', loggedAt: Date.now() }],
+    problems: {
+      reviewed: {
+        slug: 'reviewed',
+        number: 1,
+        title: 'Reviewed',
+        completedReviews: [],
+        reviewHistory: [],
+        reviewDates: [],
+        currentIntervalDays: 1,
+        easeFactor: 2.5
+      }
+    }
+  });
+
+  const response = await send('markReviewed', { slug: 'reviewed', rating: 1 });
+
+  assert.equal(response.success, true);
+  assert.equal(storage.practiceLog.length, 1);
+  assert.equal(storage.practiceLog[0].slug, 'new');
+  assert.equal(storage.problems.reviewed.completedReviews.length, 1);
+  assert.equal(storage.problems.reviewed.reviewHistory.at(-1).rating, 1);
+});
+
+test('adding a review problem still auto-logs it as practice when enabled', async () => {
+  const { send, storage } = loadBackground({
+    practiceLog: [],
+    problems: {},
+    firstInterval: 1,
+    autoLogOnReview: true
+  });
+
+  const response = await send('addProblem', {
+    problem: { slug: 'new', title: 'New' }
+  });
+
+  assert.equal(response.success, true);
+  assert.equal(storage.practiceLog.length, 1);
+  assert.equal(storage.practiceLog[0].type, 'practice');
+});

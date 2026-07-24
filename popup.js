@@ -26,6 +26,7 @@ class PopupManager {
       if (e.key === 'Enter') this.saveFirstInterval();
     });
     document.getElementById('autoLogOnReviewToggle').addEventListener('change', (e) => this.saveAutoLogSetting(e.target.checked));
+    document.getElementById('clearStaleReviewsBtn').addEventListener('click', () => this.clearStaleReviews());
   }
 
   switchTab(tabName) {
@@ -289,7 +290,7 @@ class PopupManager {
   renderTodayAcRate(practice) {
     const section = document.getElementById('todayAcSection');
     const container = document.getElementById('todayAcRate');
-    
+
     // 只统计有 solved 字段的题目
     const withStatus = practice.filter(p => p.solved !== undefined);
     if (withStatus.length === 0) {
@@ -335,13 +336,18 @@ class PopupManager {
 
   renderHeatmapCalendar(allPractice) {
     const container = document.getElementById('heatmapCalendar');
-    
-    // 按日期统计
+
+    // 按日期统计（使用本地时区）
     const countByDate = {};
     const problemsByDate = {};
     allPractice.forEach(p => {
       const date = new Date(p.loggedAt);
-      const dateKey = date.toISOString().slice(0, 10);
+      // 使用本地时区日期，避免 UTC 转换问题
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const dateKey = `${year}-${month}-${day}`;
+
       countByDate[dateKey] = (countByDate[dateKey] || 0) + 1;
       if (!problemsByDate[dateKey]) problemsByDate[dateKey] = [];
       problemsByDate[dateKey].push(p);
@@ -349,7 +355,7 @@ class PopupManager {
 
     // 存储数据供后续使用
     this.practiceData = { countByDate, problemsByDate, allPractice };
-    
+
     // 初始化为当前月份
     if (!this.currentCalendarDate) {
       this.currentCalendarDate = new Date();
@@ -365,52 +371,59 @@ class PopupManager {
     const { countByDate, problemsByDate } = this.practiceData;
     const year = this.currentCalendarDate.getFullYear();
     const month = this.currentCalendarDate.getMonth();
-    
+
     // 获取当月第一天和最后一天
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
     const daysInMonth = lastDay.getDate();
-    
+
     // 获取当月第一天是星期几 (0=周日)
     const firstDayOfWeek = firstDay.getDay();
-    
+
     // 计算当月统计
     const monthStart = new Date(year, month, 1).getTime();
     const monthEnd = new Date(year, month + 1, 0, 23, 59, 59).getTime();
-    const monthProblems = this.practiceData.allPractice.filter(p => 
+    const monthProblems = this.practiceData.allPractice.filter(p =>
       p.loggedAt >= monthStart && p.loggedAt <= monthEnd
     );
     const monthCount = monthProblems.length;
+    const monthPracticeCount = monthProblems.filter(p => p.type === 'practice').length;
+    const monthReviewCount = monthProblems.filter(p => p.type === 'review').length;
     const monthAcCount = monthProblems.filter(p => p.solved === true).length;
     const monthAcRate = monthCount > 0 ? Math.round((monthAcCount / monthCount) * 100) : 0;
 
     // 生成日历格子
     const cells = [];
-    
+
     // 填充空白 (周日到第一天之前)
     for (let i = 0; i < firstDayOfWeek; i++) {
       cells.push('<div class="calendar-cell calendar-empty"></div>');
     }
-    
+
     // 填充日期
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayTs = today.getTime();
-    
+
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(year, month, day);
-      const dateKey = date.toISOString().slice(0, 10);
+      // 使用本地时区生成日期键
+      const dateYear = date.getFullYear();
+      const dateMonth = String(date.getMonth() + 1).padStart(2, '0');
+      const dateDay = String(date.getDate()).padStart(2, '0');
+      const dateKey = `${dateYear}-${dateMonth}-${dateDay}`;
+
       const count = countByDate[dateKey] || 0;
       const isToday = date.getTime() === todayTs;
       const isFuture = date > today;
-      
+
       const level = count === 0 ? 0 : count === 1 ? 1 : count <= 3 ? 2 : count <= 5 ? 3 : 4;
       const todayClass = isToday ? 'calendar-today' : '';
       const futureClass = isFuture ? 'calendar-future' : '';
-      
+
       cells.push(`
-        <div class="calendar-cell ${todayClass} ${futureClass}" 
-             data-date="${dateKey}" 
+        <div class="calendar-cell ${todayClass} ${futureClass}"
+             data-date="${dateKey}"
              data-count="${count}"
              data-level="${level}">
           <div class="calendar-day-num">${day}</div>
@@ -420,7 +433,7 @@ class PopupManager {
     }
 
     const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
-    
+
     container.innerHTML = `
       <div class="calendar-header">
         <button class="calendar-nav-btn" id="calendar-prev-month">‹</button>
@@ -431,7 +444,9 @@ class PopupManager {
         <button class="calendar-nav-btn" id="calendar-next-month">›</button>
       </div>
       <div class="calendar-stats">
-        <span class="calendar-stat">本月刷题: <strong>${monthCount}</strong></span>
+        <span class="calendar-stat">本月总计: <strong>${monthCount}</strong></span>
+        <span class="calendar-stat">新题: <strong>${monthPracticeCount}</strong></span>
+        <span class="calendar-stat">复习: <strong>${monthReviewCount}</strong></span>
         <span class="calendar-stat">AC率: <strong>${monthAcRate}%</strong></span>
       </div>
       <div class="calendar-weekdays">
@@ -493,7 +508,7 @@ class PopupManager {
     const today = new Date().getFullYear();
     const startYear = today - 5; // 往前5年
     const endYear = today;
-    
+
     const years = [];
     for (let y = endYear; y >= startYear; y--) {
       years.push(y);
@@ -577,8 +592,13 @@ class PopupManager {
     const list = document.getElementById('selectedDayList');
 
     const dayProblems = allPractice.filter(p => {
-      const pDate = new Date(p.loggedAt).toISOString().slice(0, 10);
-      return pDate === dateKey;
+      const pDate = new Date(p.loggedAt);
+      // 使用本地时区生成日期键
+      const year = pDate.getFullYear();
+      const month = String(pDate.getMonth() + 1).padStart(2, '0');
+      const day = String(pDate.getDate()).padStart(2, '0');
+      const pDateKey = `${year}-${month}-${day}`;
+      return pDateKey === dateKey;
     });
 
     if (dayProblems.length === 0) {
@@ -594,7 +614,7 @@ class PopupManager {
       .sort((a, b) => (b.loggedAt || 0) - (a.loggedAt || 0))
       .map(p => this.createPracticeCard(p, false))
       .join('');
-    
+
     this.attachCardListeners();
 
     // 滚动到详情区域
@@ -604,15 +624,21 @@ class PopupManager {
   createPracticeCard(problem, showDate = false) {
     const tags = problem.tags || [];
     const tagsHtml = tags.length > 0 ? `<div class="problem-tags">${tags.map(t => `<span class="tag">${t}</span>`).join('')}</div>` : '';
-    
+
     // 如果 showDate=true，显示日期；否则只显示时间
     const dateTime = new Date(problem.loggedAt);
-    const timeDisplay = showDate 
+    const timeDisplay = showDate
       ? `${dateTime.getMonth() + 1}/${dateTime.getDate()} ${dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
       : dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    
+
     const durationHtml = problem.duration ? `<span>⏱ ${problem.duration}min</span>` : '';
-    const solvedHtml = problem.solved !== undefined 
+
+    // 类型标记：新题 or 复习
+    const typeHtml = problem.type === 'review'
+      ? '<span class="type-badge type-review">🔄 复习</span>'
+      : '<span class="type-badge type-practice">✨ 新题</span>';
+
+    const solvedHtml = problem.solved !== undefined
       ? (problem.solved ? '<span class="ac-badge ac-yes">✓ AC</span>' : '<span class="ac-badge ac-no">✗ 未AC</span>')
       : '';
     const notesHtml = problem.notes ? `<div class="problem-notes">${this.escapeHtml(problem.notes)}</div>` : '';
@@ -623,7 +649,7 @@ class PopupManager {
           <span class="difficulty ${(problem.difficulty || '').toLowerCase()}">${problem.difficulty || 'Unknown'}</span>
         </div>
         ${tagsHtml}
-        <div class="problem-meta"><span>🕐 ${timeDisplay}</span>${solvedHtml}${durationHtml}</div>
+        <div class="problem-meta"><span>🕐 ${timeDisplay}</span>${typeHtml}${solvedHtml}${durationHtml}</div>
         ${notesHtml}
         <div class="problem-actions"><button class="btn-small btn-link" data-action="open" data-url="${problem.url || ''}">打开题目</button></div>
       </div>`;
@@ -728,7 +754,7 @@ class PopupManager {
         <div class="problem-actions">
           ${ratingHtml}
           <button class="btn-small btn-link" data-action="open" data-url="${problem.url || ''}">打开</button>
-          <button class="btn-small btn-delete" data-action="delete" data-slug="${slug}">删除</button>
+          <button class="btn-small btn-delete" data-action="delete" data-slug="${slug}">移除</button>
         </div>
       </div>`;
   }
@@ -811,7 +837,10 @@ class PopupManager {
         ${recent.map(d => {
           const pHeight = Math.max(((d.practice || 0) / maxTotal) * 100, 0);
           const rHeight = Math.max(((d.review || 0) / maxTotal) * 100, 0);
-          const isToday = d.date === new Date().toISOString().slice(0, 10);
+          // 使用本地时区生成今天的日期
+          const today = new Date();
+          const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+          const isToday = d.date === todayKey;
           return `
             <div class="bar-col ${isToday ? 'bar-today' : ''}">
               <div class="bar-value">${d.total || ''}</div>
@@ -902,7 +931,7 @@ class PopupManager {
   // ============ 设置 Tab ============
 
   async loadSettingsTab() {
-    await Promise.all([this.loadGoalsEditor(), this.loadFirstIntervalEditor(), this.loadAutoLogSetting()]);
+    await Promise.all([this.loadGoalsEditor(), this.loadViewGoalEditor(), this.loadFirstIntervalEditor(), this.loadAutoLogSetting()]);
   }
 
   async loadGoalsEditor() {
@@ -953,6 +982,24 @@ class PopupManager {
 
   // ============ 首次间隔设置 ============
 
+  async loadViewGoalEditor() {
+    try {
+      const res = await chrome.runtime.sendMessage({ action: 'getDailyViewGoal' });
+      const input = document.getElementById('dailyViewGoalInput');
+      if (input) input.value = res.goal ?? 5;
+
+      const saveBtn = document.getElementById('saveViewGoalBtn');
+      if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+          const goal = parseInt(input.value) || 5;
+          await chrome.runtime.sendMessage({ action: 'setDailyViewGoal', goal });
+          saveBtn.textContent = '✓ 已保存';
+          setTimeout(() => { saveBtn.textContent = '保存设置'; }, 2000);
+        });
+      }
+    } catch (e) { console.error('loadViewGoalEditor error:', e); }
+  }
+
   async loadFirstIntervalEditor() {
     const res = await chrome.runtime.sendMessage({ action: 'getFirstInterval' });
     const input = document.getElementById('firstIntervalInput');
@@ -991,8 +1038,33 @@ class PopupManager {
       btn.addEventListener('click', (e) => { e.stopPropagation(); chrome.tabs.create({ url: btn.dataset.url }); });
     });
     document.querySelectorAll('[data-action="delete"]').forEach(btn => {
-      btn.addEventListener('click', async (e) => { e.stopPropagation(); if (confirm('确定删除？')) await this.deleteProblem(btn.dataset.slug); });
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (confirm('从复习计划中移除此题？（刷题日历中的历史记录仍会保留）')) await this.deleteProblem(btn.dataset.slug);
+      });
     });
+  }
+
+  async clearStaleReviews() {
+    try {
+      const countRes = await chrome.runtime.sendMessage({ action: 'countStaleReviews' });
+      const n = countRes.count ?? 0;
+      if (n === 0) {
+        alert('没有「下次复习日早于 30 天前」的题目，无需清理。');
+        return;
+      }
+      if (!confirm(`将移除 ${n} 道长期逾期题目（从复习计划中删除，刷题记录保留）。确定？`)) return;
+      const res = await chrome.runtime.sendMessage({ action: 'clearStaleReviews' });
+      if (res.success) {
+        alert(`已清理 ${res.removed ?? n} 道题。`);
+        await this.loadData();
+      } else {
+        alert('清理失败，请稍后重试。');
+      }
+    } catch (e) {
+      console.error('clearStaleReviews', e);
+      alert('清理失败: ' + (e.message || String(e)));
+    }
   }
 
   async markProblemDone(slug, rating = 2) {
@@ -1014,7 +1086,9 @@ class PopupManager {
     ]);
     const blob = new Blob([JSON.stringify({ problems: p.problems, practiceLog: pr.practice, exportedAt: Date.now() }, null, 2)], { type: 'application/json' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = `leetcode-data-${new Date().toISOString().slice(0, 10)}.json`; a.click();
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    a.download = `leetcode-data-${dateStr}.json`; a.click();
   }
 
   importData() {

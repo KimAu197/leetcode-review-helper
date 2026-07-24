@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "LeetCode Spaced Repetition",
-  "version": "2.0.0",
-  "description": "SM-2自适应遗忘曲线 + 智能教练 + 成就系统 | LeetCode复习神器",
+  "version": "3.0.0",
+  "description": "SM-2自适应遗忘曲线 + 智能教练 + 成就系统 + 看题复习 | LeetCode复习神器",
   "permissions": [
     "storage",
     "alarms",
