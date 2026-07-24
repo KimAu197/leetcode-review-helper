@@ -282,8 +282,9 @@ class SpacedRepetitionManager {
 
   async logPractice(problemInfo) {
     try {
-      const storageResult = await chrome.storage.local.get('practiceLog');
+      const storageResult = await chrome.storage.local.get(['practiceLog', 'problems']);
       const practiceLog = storageResult.practiceLog || [];
+      const problemsMap = storageResult.problems || {};
 
       // 检查今天是否已记录同一题
       const today = new Date();
@@ -298,9 +299,17 @@ class SpacedRepetitionManager {
         return { success: false, error: '今天已经记录过这道题了' };
       }
 
+      const hasPreviousPractice = practiceLog.some(
+        p => p.slug === problemInfo.slug && p.type !== 'review'
+      );
+      const reviewProblem = problemsMap[problemInfo.slug];
+      const wasAlreadyInReview = reviewProblem &&
+        (reviewProblem.addedAt == null || reviewProblem.addedAt < todayTs);
+
       practiceLog.push({
         ...problemInfo,
         type: 'practice', // 标记为新题刷题
+        isNewProblem: !hasPreviousPractice && !wasAlreadyInReview,
         solved: problemInfo.solved ?? true, // 默认为 true（兼容旧数据）
         duration: problemInfo.duration || null,
         notes: problemInfo.notes || null,
@@ -331,6 +340,33 @@ class SpacedRepetitionManager {
   async getAllPractice() {
     const storageResult = await chrome.storage.local.get('practiceLog');
     return (storageResult.practiceLog || []).filter(p => p.type !== 'review');
+  }
+
+  async getTodayNewPracticeCount() {
+    const storageResult = await chrome.storage.local.get(['practiceLog', 'problems']);
+    const practiceLog = storageResult.practiceLog || [];
+    const problemsMap = storageResult.problems || {};
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayTs = today.getTime();
+
+    const todayPractice = practiceLog.filter(
+      p => p.loggedAt >= todayTs && p.type !== 'review'
+    );
+
+    return todayPractice.filter(entry => {
+      if (typeof entry.isNewProblem === 'boolean') return entry.isNewProblem;
+
+      const hasEarlierPractice = practiceLog.some(
+        p => p.slug === entry.slug && p.type !== 'review' && p.loggedAt < entry.loggedAt
+      );
+      const reviewProblem = problemsMap[entry.slug];
+      const wasAlreadyInReview = reviewProblem &&
+        (reviewProblem.addedAt == null || reviewProblem.addedAt < todayTs);
+
+      return !hasEarlierPractice && !wasAlreadyInReview;
+    }).length;
   }
 
   async getTagStats() {
@@ -500,7 +536,7 @@ class SpacedRepetitionManager {
   async getDailyPlan() {
     const goals = await this.getGoals();
     const dueReviews = await this.getReviewQueue();
-    const todayPractice = await this.getTodayPractice();
+    const newDone = await this.getTodayNewPracticeCount();
     const todayCompleted = await this.getTodayCompleted();
     const weakTags = await this.getWeakTags();
 
@@ -508,7 +544,6 @@ class SpacedRepetitionManager {
     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
     const reviewsDone = todayCompleted.length;
-    const newDone = todayPractice.length;
 
     // 堆积保护：如果积压太多，动态提高今日目标，但不超过时间预算
     const baseTarget = isWeekend ? Math.ceil(goals.dailyReview * 1.5) : goals.dailyReview;

@@ -100,19 +100,34 @@ test('practice reads exclude review entries but keep legacy practice', async () 
 });
 
 test('explicit practice logging succeeds when only a review entry exists today', async () => {
+  const yesterday = Date.now() - 86400000;
   const { send, storage } = loadBackground({
     practiceLog: [
       { slug: 'reviewed', type: 'review', loggedAt: Date.now() }
-    ]
+    ],
+    problems: {
+      reviewed: {
+        slug: 'reviewed',
+        addedAt: yesterday,
+        completedReviews: [],
+        reviewHistory: [],
+        reviewDates: []
+      }
+    }
   });
 
   const response = await send('logPractice', {
     problem: { slug: 'reviewed', title: 'Reviewed then practiced', solved: true }
   });
+  const todayResponse = await send('getTodayPractice');
+  const planResponse = await send('getDailyPlan');
 
   assert.equal(response.success, true);
   assert.equal(storage.practiceLog.length, 2);
   assert.equal(storage.practiceLog.at(-1).type, 'practice');
+  assert.equal(storage.practiceLog.at(-1).isNewProblem, false);
+  assert.equal(todayResponse.practice.length, 1, 'explicit practice still counts toward today');
+  assert.equal(planResponse.plan.newDone, 0, 'old review practice must not advance new-problem progress');
 });
 
 test('marking a review hard does not append to practiceLog', async () => {
@@ -141,6 +156,31 @@ test('marking a review hard does not append to practiceLog', async () => {
   assert.equal(storage.problems.reviewed.reviewHistory.at(-1).rating, 1);
 });
 
+test('legacy practice entries infer new status without counting an old review as new', async () => {
+  const now = Date.now();
+  const { send } = loadBackground({
+    practiceLog: [
+      { slug: 'legacy-new', type: 'practice', loggedAt: now - 1000 },
+      { slug: 'old-review', type: 'practice', loggedAt: now }
+    ],
+    problems: {
+      'old-review': {
+        slug: 'old-review',
+        addedAt: now - 86400000,
+        completedReviews: [],
+        reviewHistory: [],
+        reviewDates: []
+      }
+    }
+  });
+
+  const todayResponse = await send('getTodayPractice');
+  const planResponse = await send('getDailyPlan');
+
+  assert.equal(todayResponse.practice.length, 2);
+  assert.equal(planResponse.plan.newDone, 1);
+});
+
 test('adding a review problem still auto-logs it as practice when enabled', async () => {
   const { send, storage } = loadBackground({
     practiceLog: [],
@@ -156,4 +196,5 @@ test('adding a review problem still auto-logs it as practice when enabled', asyn
   assert.equal(response.success, true);
   assert.equal(storage.practiceLog.length, 1);
   assert.equal(storage.practiceLog[0].type, 'practice');
+  assert.equal(storage.practiceLog[0].isNewProblem, true);
 });
