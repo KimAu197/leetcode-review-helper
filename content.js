@@ -90,7 +90,7 @@ class LeetCodeHelper {
   extractProblemInfo() {
     // 检测是国际版还是中国版
     const isCN = window.location.hostname.includes('leetcode.cn');
-    
+
     // 提取题目信息
     const urlMatch = window.location.pathname.match(/\/problems\/([^\/]+)/);
     const slug = urlMatch ? urlMatch[1] : '';
@@ -291,6 +291,9 @@ class LeetCodeHelper {
       const mainButton = document.getElementById('leetcode-sr-button');
       const statusIndicator = document.getElementById('leetcode-sr-status');
 
+      // SPA 可能整页替换 DOM，浮动按钮被移除后勿再操作（避免 null.classList 报错）
+      if (!mainButton || !statusIndicator) return;
+
       if (response && response.exists) {
         mainButton.classList.add('added');
         mainButton.innerHTML = `
@@ -299,8 +302,12 @@ class LeetCodeHelper {
           </svg>
           <span>已加入</span>
         `;
-        
-        statusIndicator.textContent = `下次复习: ${new Date(response.nextReview).toLocaleDateString()}`;
+
+        const nr = response.nextReview;
+        const dateStr = nr != null && !Number.isNaN(new Date(nr).getTime())
+          ? new Date(nr).toLocaleDateString()
+          : '—';
+        statusIndicator.textContent = `下次复习: ${dateStr}`;
         statusIndicator.classList.remove('hidden');
       }
     } catch (error) {
@@ -582,6 +589,170 @@ class LeetCodeHelper {
 
     await this.refreshQueue();
     setInterval(() => this.refreshQueue(), 60000);
+
+    // 创建看题队列面板
+    this.createViewQueue();
+  }
+
+  createViewQueue() {
+    const panel = document.createElement('div');
+    panel.id = 'leetcode-sr-view-queue';
+    panel.className = 'sr-view-queue';
+    panel.innerHTML = `
+      <div class="sr-view-header" id="sr-view-header">
+        <span class="sr-view-title">👀 今日看题</span>
+        <span class="sr-view-badge" id="sr-view-badge">0</span>
+        <span class="sr-view-toggle" id="sr-view-toggle">▾</span>
+      </div>
+      <div class="sr-view-body" id="sr-view-body">
+        <div class="sr-view-progress" id="sr-view-progress"></div>
+        <div class="sr-view-list" id="sr-view-list"></div>
+      </div>
+    `;
+    document.body.appendChild(panel);
+
+    document.getElementById('sr-view-header').addEventListener('click', () => {
+      panel.classList.toggle('sr-view-collapsed');
+      const toggle = document.getElementById('sr-view-toggle');
+      toggle.textContent = panel.classList.contains('sr-view-collapsed') ? '▸' : '▾';
+    });
+
+    this.refreshViewQueue();
+    setInterval(() => this.refreshViewQueue(), 60000);
+  }
+
+  async refreshViewQueue() {
+    try {
+      const response = await this.safeSendMessage({ action: 'getViewQueue' });
+      if (!response || !response.viewQueue) return;
+      this.viewQueue = response.viewQueue;
+      this.renderViewQueue();
+    } catch (e) {
+      console.warn('Failed to refresh view queue:', e);
+    }
+  }
+
+  renderViewQueue() {
+    const { queue = [], viewedCount = 0, totalGoal = 5 } = this.viewQueue || {};
+    const currentSlug = this.problemInfo?.slug;
+
+    // Badge
+    const badge = document.getElementById('sr-view-badge');
+    if (badge) badge.textContent = queue.length;
+
+    // Hide panel if no items
+    const panel = document.getElementById('leetcode-sr-view-queue');
+    if (panel) {
+      panel.style.display = queue.length === 0 ? 'none' : '';
+
+      // 动态调整位置：放在复习队列上方
+      this.adjustQueuePositions();
+    }
+
+    // Progress
+    const progress = document.getElementById('sr-view-progress');
+    if (progress && queue.length > 0) {
+      progress.innerHTML = `
+        <span class="sr-progress-text">👀 已看 ${viewedCount}/${totalGoal}</span>
+      `;
+    }
+
+    // List
+    const list = document.getElementById('sr-view-list');
+    if (!list) return;
+
+    if (queue.length === 0) {
+      list.innerHTML = '<div class="sr-view-empty">🎉 今日看题任务完成！</div>';
+      return;
+    }
+
+    list.innerHTML = queue.map(p => {
+      const isCurrent = p.slug === currentSlug;
+      const diffClass = (p.difficulty || '').toLowerCase();
+      const diffLabel = { easy: 'E', medium: 'M', hard: 'H' }[diffClass] || '?';
+
+      const lastReview = (p.reviewHistory || [])[p.reviewHistory.length - 1];
+      const ratingLabel = lastReview ? ['😵', '😤', '👍', '😊'][lastReview.rating] : '';
+
+      return `
+        <div class="sr-view-item ${isCurrent ? 'sr-view-current' : ''}" data-slug="${p.slug || ''}">
+          <div class="sr-view-item-main">
+            <span class="sr-view-item-title">#${p.number || '?'} ${p.title || '未知题目'}</span>
+            ${ratingLabel ? `<span class="sr-view-rating">${ratingLabel}</span>` : ''}
+            <span class="sr-view-item-diff ${diffClass}">${diffLabel}</span>
+          </div>
+          ${isCurrent ? `
+            <div class="sr-view-actions">
+              <button class="sr-view-mark-btn" data-slug="${p.slug || ''}">✓ 标记已看</button>
+            </div>
+          ` : `
+            <div class="sr-view-item-go">
+              <button class="sr-view-go-btn" data-url="${p.url || ''}">查看 →</button>
+            </div>
+          `}
+        </div>
+      `;
+    }).join('');
+
+    // Bind events
+    list.querySelectorAll('.sr-view-mark-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await this.markViewed(btn.dataset.slug);
+      });
+    });
+
+    list.querySelectorAll('.sr-view-go-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        window.location.href = this.normalizeLeetCodeUrl(btn.dataset.url);
+      });
+    });
+  }
+
+  async markViewed(slug) {
+    try {
+      const response = await this.safeSendMessage({
+        action: 'markProblemViewed',
+        slug
+      });
+
+      if (response && response.success) {
+        this.showNotification('✓ 已标记为看过，明天会再次复习', 'success');
+        await this.refreshViewQueue();
+      } else {
+        throw new Error(response?.error || '标记失败');
+      }
+    } catch (error) {
+      this.showNotification('标记失败: ' + error.message, 'error');
+    }
+  }
+
+  adjustQueuePositions() {
+    const reviewQueue = document.getElementById('leetcode-sr-queue');
+    const viewQueue = document.getElementById('leetcode-sr-view-queue');
+
+    if (!reviewQueue || !viewQueue) return;
+
+    const reviewVisible = reviewQueue.style.display !== 'none';
+    const viewVisible = viewQueue.style.display !== 'none';
+
+    if (!reviewVisible && !viewVisible) return;
+
+    // 复习队列始终在底部
+    reviewQueue.style.bottom = '16px';
+    reviewQueue.style.top = 'auto';
+
+    if (reviewVisible && viewVisible) {
+      // 两个都显示：看题队列在上面
+      const reviewHeight = reviewQueue.offsetHeight || 300;
+      viewQueue.style.bottom = `${reviewHeight + 24}px`; // 16px底部 + 8px间距
+      viewQueue.style.top = 'auto';
+    } else if (viewVisible) {
+      // 只有看题队列：放在底部
+      viewQueue.style.bottom = '16px';
+      viewQueue.style.top = 'auto';
+    }
   }
 
   async refreshQueue() {
@@ -605,7 +776,12 @@ class LeetCodeHelper {
 
     // Hide panel entirely if no reviews
     const panel = document.getElementById('leetcode-sr-queue');
-    if (panel) panel.style.display = queue.length === 0 ? 'none' : '';
+    if (panel) {
+      panel.style.display = queue.length === 0 ? 'none' : '';
+
+      // 动态调整两个队列的位置
+      this.adjustQueuePositions();
+    }
 
     // Progress — count today completed from completedReviews
     const progress = document.getElementById('sr-queue-progress');
@@ -654,9 +830,13 @@ class LeetCodeHelper {
               <button class="sr-rate good" data-slug="${p.slug || ''}" data-rating="2">👍记得</button>
               <button class="sr-rate easy" data-slug="${p.slug || ''}" data-rating="3">😊简单</button>
             </div>
+            <div class="sr-queue-item-actions">
+              <button type="button" class="sr-remove-btn" data-slug="${p.slug || ''}">移除</button>
+            </div>
           ` : `
             <div class="sr-queue-item-go">
-              <button class="sr-go-btn" data-url="${p.url || ''}">跳转 →</button>
+              <button type="button" class="sr-go-btn" data-url="${p.url || ''}">跳转</button>
+              <button type="button" class="sr-remove-btn" data-slug="${p.slug || ''}">移除</button>
             </div>
           `}
         </div>
@@ -674,9 +854,33 @@ class LeetCodeHelper {
     list.querySelectorAll('.sr-go-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        window.location.href = btn.dataset.url;
+        window.location.href = this.normalizeLeetCodeUrl(btn.dataset.url);
       });
     });
+
+    list.querySelectorAll('.sr-remove-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await this.removeFromReviewQueue(btn.dataset.slug);
+      });
+    });
+  }
+
+  async removeFromReviewQueue(slug) {
+    if (!slug) return;
+    if (!confirm('从复习计划中移除此题？（刷题历史仍会保留）')) return;
+    const response = await this.safeSendMessage({ action: 'deleteProblem', slug });
+    if (!response || response.error) {
+      this.showNotification('移除失败', 'error');
+      return;
+    }
+    this.showNotification('已从复习计划移除', 'success');
+    await this.refreshQueue();
+    await this.refreshViewQueue();
+    if (slug === this.problemInfo?.slug) {
+      this.resetButtons();
+      this.checkProblemStatus();
+    }
   }
 
   async rateReview(slug, rating) {
@@ -692,6 +896,7 @@ class LeetCodeHelper {
           'success'
         );
         await this.refreshQueue();
+        await this.refreshViewQueue(); // 同时刷新看题队列
 
         if (slug === this.problemInfo?.slug) {
           this.checkProblemStatus();
@@ -702,12 +907,260 @@ class LeetCodeHelper {
     }
   }
 
+  async insertNotesToEditor(slug) {
+    try {
+      // 获取题目信息（包括笔记）
+      const response = await this.safeSendMessage({
+        action: 'getProblems'
+      });
+
+      if (!response || !response.problems) return;
+
+      const problem = response.problems.find(p => p.slug === slug);
+      if (!problem || !problem.notes) return;
+
+      const notes = problem.notes.trim();
+      this.insertNotesToEditorDirect(notes, 'review');
+
+      console.log('✓ Notes inserted to editor');
+    } catch (error) {
+      console.error('Insert notes error:', error);
+    }
+  }
+
+  insertNotesToEditorDirect(notes, type = 'review') {
+    console.log('📝 insertNotesToEditorDirect called with:', { notes, type });
+
+    const trimmedNotes = notes.trim();
+    if (!trimmedNotes) {
+      console.log('📝 Notes is empty after trim');
+      return;
+    }
+
+    const date = new Date().toLocaleDateString('zh-CN');
+    const label = type === 'review' ? '复习笔记' : '刷题心得';
+    const commentBlock = `/*\n * ${label} (${date}):\n * ${trimmedNotes.split('\n').join('\n * ')}\n */\n\n`;
+
+    console.log('📝 Comment block to insert:', commentBlock);
+
+    // 直接使用剪贴板方案（更可靠）
+    this.copyNotesToClipboard(commentBlock, label);
+  }
+
+  async copyNotesToClipboard(text, label) {
+    try {
+      await navigator.clipboard.writeText(text);
+
+      // 创建一个更明显的通知
+      const notif = document.createElement('div');
+      notif.className = 'sr-clipboard-notification';
+      notif.innerHTML = `
+        <div class="sr-clipboard-header">
+          <span class="sr-clipboard-icon">📋</span>
+          <span class="sr-clipboard-title">${label}已复制</span>
+        </div>
+        <div class="sr-clipboard-body">
+          请在代码编辑器第1行开头粘贴<br>
+          <strong>Mac: ⌘+V  |  Windows: Ctrl+V</strong>
+        </div>
+        <button class="sr-clipboard-close">✕</button>
+      `;
+
+      document.body.appendChild(notif);
+
+      // 点击关闭
+      notif.querySelector('.sr-clipboard-close').addEventListener('click', () => {
+        notif.remove();
+      });
+
+      // 10秒后自动关闭
+      setTimeout(() => {
+        if (notif.parentNode) {
+          notif.style.opacity = '0';
+          setTimeout(() => notif.remove(), 300);
+        }
+      }, 10000);
+
+      console.log('✅ Copied to clipboard, showing notification');
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error);
+      // 降级方案：显示文本让用户手动复制
+      this.showNotesDialog(text, label);
+    }
+  }
+
+  showNotesDialog(text, label) {
+    const dialog = document.createElement('div');
+    dialog.className = 'sr-notes-dialog';
+    dialog.innerHTML = `
+      <div class="sr-notes-overlay"></div>
+      <div class="sr-notes-content">
+        <div class="sr-notes-header">
+          <span>${label}</span>
+          <button class="sr-notes-close">✕</button>
+        </div>
+        <textarea class="sr-notes-text" readonly>${text}</textarea>
+        <div class="sr-notes-footer">
+          <button class="sr-notes-copy">复制</button>
+          <p class="sr-notes-hint">复制后在代码编辑器顶部粘贴（Ctrl+V 或 ⌘+V）</p>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(dialog);
+
+    const close = () => dialog.remove();
+    dialog.querySelector('.sr-notes-close').addEventListener('click', close);
+    dialog.querySelector('.sr-notes-overlay').addEventListener('click', close);
+
+    const copyBtn = dialog.querySelector('.sr-notes-copy');
+    copyBtn.addEventListener('click', async () => {
+      const textarea = dialog.querySelector('.sr-notes-text');
+      textarea.select();
+      try {
+        await navigator.clipboard.writeText(text);
+        copyBtn.textContent = '✓ 已复制';
+        setTimeout(() => {
+          copyBtn.textContent = '复制';
+        }, 2000);
+      } catch (e) {
+        document.execCommand('copy');
+        copyBtn.textContent = '✓ 已复制';
+      }
+    });
+  }
+
+  insertTextToEditor(text) {
+    console.log('🔍 Trying to insert text to editor...');
+
+    // 方法1: Monaco Editor (LeetCode使用)
+    try {
+      const monacoEditor = window.monaco?.editor?.getEditors?.()?.[0];
+      if (monacoEditor) {
+        console.log('✓ Found Monaco Editor');
+        const currentValue = monacoEditor.getValue();
+        monacoEditor.setValue(text + currentValue);
+        monacoEditor.setPosition({ lineNumber: 1, column: 1 });
+        return true;
+      }
+    } catch (e) {
+      console.log('Monaco Editor not found:', e.message);
+    }
+
+    // 方法2: 查找 CodeMirror
+    try {
+      const codeMirrorEl = document.querySelector('.CodeMirror');
+      if (codeMirrorEl && codeMirrorEl.CodeMirror) {
+        console.log('✓ Found CodeMirror');
+        const cm = codeMirrorEl.CodeMirror;
+        const currentValue = cm.getValue();
+        cm.setValue(text + currentValue);
+        return true;
+      }
+    } catch (e) {
+      console.log('CodeMirror not found:', e.message);
+    }
+
+    // 方法3: 尝试通过 React 内部属性访问编辑器
+    try {
+      const editorContainer = document.querySelector('[data-track-load="description_content"]') ||
+                            document.querySelector('.monaco-editor') ||
+                            document.querySelector('#editor');
+
+      if (editorContainer) {
+        console.log('✓ Found editor container');
+        // 尝试查找 React 内部属性
+        const reactKey = Object.keys(editorContainer).find(key => key.startsWith('__react'));
+        if (reactKey) {
+          const reactInstance = editorContainer[reactKey];
+          console.log('Found React instance:', reactInstance);
+        }
+      }
+    } catch (e) {
+      console.log('React access failed:', e.message);
+    }
+
+    // 方法4: 查找所有可能的 textarea 并强制更新
+    try {
+      const textareas = [
+        document.querySelector('textarea[data-mode-id]'),
+        document.querySelector('#editor textarea'),
+        document.querySelector('.monaco-editor textarea'),
+        document.querySelector('textarea.inputarea'),
+        ...document.querySelectorAll('textarea')
+      ].filter(Boolean);
+
+      console.log(`Found ${textareas.length} textareas`);
+
+      for (const textarea of textareas) {
+        if (textarea.offsetWidth > 0 && textarea.offsetHeight > 0) {
+          console.log('✓ Using visible textarea');
+
+          // 保存当前值
+          const currentValue = textarea.value;
+          const newValue = text + currentValue;
+
+          // 设置新值
+          textarea.value = newValue;
+
+          // 触发多种事件确保编辑器识别变化
+          const events = [
+            new Event('input', { bubbles: true }),
+            new Event('change', { bubbles: true }),
+            new KeyboardEvent('keydown', { bubbles: true, key: 'a' }),
+            new KeyboardEvent('keyup', { bubbles: true, key: 'a' }),
+            new InputEvent('beforeinput', { bubbles: true }),
+            new InputEvent('input', { bubbles: true, inputType: 'insertText' })
+          ];
+
+          events.forEach(event => {
+            try {
+              textarea.dispatchEvent(event);
+            } catch (e) {}
+          });
+
+          // 聚焦到编辑器
+          textarea.focus();
+
+          // 设置光标到开头
+          setTimeout(() => {
+            textarea.setSelectionRange(0, 0);
+            textarea.scrollTop = 0;
+          }, 100);
+
+          return true;
+        }
+      }
+    } catch (e) {
+      console.log('Textarea method failed:', e.message);
+    }
+
+    console.log('❌ Failed to insert text - no editor found');
+    return false;
+  }
+
+  /** 与当前页同站（leetcode.com / leetcode.cn）打开题目链接 */
+  normalizeLeetCodeUrl(url) {
+    if (!url) return url;
+    try {
+      const u = new URL(url, window.location.origin);
+      const host = window.location.hostname;
+      if (host.includes('leetcode.cn') && u.hostname === 'leetcode.com') {
+        u.hostname = 'leetcode.cn';
+      } else if (host === 'leetcode.com' && u.hostname.includes('leetcode.cn')) {
+        u.hostname = 'leetcode.com';
+      }
+      return u.toString();
+    } catch {
+      return url;
+    }
+  }
+
   goToNextReview() {
     const queue = this.reviewQueue || [];
     const currentSlug = this.problemInfo?.slug;
     const next = queue.find(p => p.slug !== currentSlug) || queue[0];
     if (next) {
-      window.location.href = next.url;
+      window.location.href = this.normalizeLeetCodeUrl(next.url);
     } else {
       this.showNotification('🎉 所有复习都完成了！', 'success');
     }
@@ -852,14 +1305,14 @@ class LeetCodeHelper {
         </div>` : ''}
 
         <div class="sr-dash-stats">
-          <div class="sr-dash-stat"><span class="sr-dash-stat-val">${stats.total || 0}</span><span class="sr-dash-stat-lbl">总题</span></div>
+          <div class="sr-dash-stat"><span class="sr-dash-stat-val">${stats.totalProblems ?? 0}</span><span class="sr-dash-stat-lbl">总题</span></div>
           <div class="sr-dash-stat"><span class="sr-dash-stat-val">${successRate || 0}%</span><span class="sr-dash-stat-lbl">成功率</span></div>
           <div class="sr-dash-stat"><span class="sr-dash-stat-val">${totalActiveDays || 0}</span><span class="sr-dash-stat-lbl">活跃天</span></div>
         </div>
 
         ${(recentBadges?.length || 0) > 0 ? `
         <div class="sr-dash-badges">
-          ${(recentBadges || []).map(a => `<span class="sr-dash-badge" title="${a.name || '?'}: ${a.desc || ''}}">${a.icon || '🏆'}</span>`).join('')}
+          ${(recentBadges || []).map(a => `<span class="sr-dash-badge" title="${(a.name || '?').replace(/"/g, '&quot;')}: ${(a.desc || '').replace(/"/g, '&quot;')}">${a.icon || '🏆'}</span>`).join('')}
           ${(unlockedCount || 0) > 4 ? `<span class="sr-dash-badge-more">+${(unlockedCount || 0) - 4}</span>` : ''}
         </div>` : ''}
       `;

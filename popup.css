@@ -92,6 +92,29 @@ body {
 }
 .tab-content.active { display: block; }
 
+/* 复习页工具栏 */
+.review-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px;
+  background: #f3f4f6;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+}
+.review-toolbar-hint {
+  font-size: 11px;
+  color: #6b7280;
+  line-height: 1.4;
+  margin: 0;
+}
+.btn-clear-stale {
+  align-self: flex-start;
+  font-size: 12px;
+  padding: 6px 12px;
+}
+
 /* Section标题 */
 .section-title {
   font-size: 12px;
@@ -318,6 +341,22 @@ body {
   background: #fee2e2;
   color: #991b1b;
 }
+
+.type-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.type-badge.type-practice {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  color: #92400e;
+}
+.type-badge.type-review {
+  background: linear-gradient(135deg, #ddd6fe 0%, #c4b5fd 100%);
+  color: #5b21b6;
+}
   font-size: 11px;
   color: #6b7280;
   margin-bottom: 6px;
@@ -492,9 +531,9 @@ body {
 .calendar-stats {
   display: flex;
   justify-content: center;
-  gap: 20px;
+  gap: 12px;
   margin-bottom: 12px;
-  padding: 10px;
+  padding: 8px;
   background: white;
   border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
