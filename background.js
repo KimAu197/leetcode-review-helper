@@ -338,8 +338,42 @@ class SpacedRepetitionManager {
   }
 
   async getAllPractice() {
-    const storageResult = await chrome.storage.local.get('practiceLog');
-    return (storageResult.practiceLog || []).filter(p => p.type !== 'review');
+    const storageResult = await chrome.storage.local.get(['practiceLog', 'problems']);
+    const practiceEntries = (storageResult.practiceLog || []).filter(p => p.type !== 'review');
+    const reviewEvents = Object.values(storageResult.problems || {}).flatMap(problem => {
+      const completed = (problem.completedReviews || []).filter(Number.isFinite);
+      const history = (problem.reviewHistory || []).filter(item => Number.isFinite(item.date));
+      const extraHistoryCount = Math.max(0, history.length - completed.length);
+
+      const extraHistoryEvents = history.slice(0, extraHistoryCount).map(item => ({
+        ...problem,
+        type: 'review',
+        rating: item.rating ?? null,
+        solved: item.rating == null ? undefined : item.rating >= 2,
+        duration: null,
+        notes: null,
+        loggedAt: item.date
+      }));
+
+      const completedEvents = completed.map((loggedAt, index) => {
+        const historyIndex = history.length - completed.length + index;
+        const item = historyIndex >= 0 ? history[historyIndex] : null;
+        return {
+          ...problem,
+          type: 'review',
+          rating: item?.rating ?? null,
+          solved: item?.rating == null ? undefined : item.rating >= 2,
+          duration: null,
+          notes: null,
+          loggedAt
+        };
+      });
+
+      return [...extraHistoryEvents, ...completedEvents];
+    });
+
+    return [...practiceEntries, ...reviewEvents]
+      .sort((a, b) => (a.loggedAt || 0) - (b.loggedAt || 0));
   }
 
   async getTodayNewPracticeCount() {

@@ -82,20 +82,31 @@ function loadBackground(initialStorage = {}) {
   return { send, storage };
 }
 
-test('practice reads exclude review entries but keep legacy practice', async () => {
+test('calendar reads derive reviews without adding them to today practice', async () => {
+  const reviewedAt = Date.now();
   const { send, storage } = loadBackground({
     practiceLog: [
-      { slug: 'new', type: 'practice', loggedAt: Date.now() },
-      { slug: 'legacy', loggedAt: Date.now() },
-      { slug: 'reviewed', type: 'review', loggedAt: Date.now() }
-    ]
+      { slug: 'new', type: 'practice', loggedAt: reviewedAt - 2 },
+      { slug: 'legacy', loggedAt: reviewedAt - 1 },
+      { slug: 'reviewed', type: 'review', loggedAt: reviewedAt }
+    ],
+    problems: {
+      reviewed: {
+        slug: 'reviewed',
+        title: 'Reviewed',
+        completedReviews: [reviewedAt],
+        reviewHistory: [{ date: reviewedAt, rating: 1 }]
+      }
+    }
   });
 
   const todayResponse = await send('getTodayPractice');
   const allResponse = await send('getAllPractice');
 
   assert.deepEqual(Array.from(todayResponse.practice, problem => problem.slug), ['new', 'legacy']);
-  assert.deepEqual(Array.from(allResponse.practiced, problem => problem.slug), ['new', 'legacy']);
+  assert.deepEqual(Array.from(allResponse.practiced, problem => problem.slug), ['new', 'legacy', 'reviewed']);
+  assert.equal(allResponse.practiced.at(-1).type, 'review');
+  assert.equal(allResponse.practiced.at(-1).rating, 1);
   assert.equal(storage.practiceLog.length, 3, 'read filtering must not delete stored data');
 });
 
@@ -148,12 +159,15 @@ test('marking a review hard does not append to practiceLog', async () => {
   });
 
   const response = await send('markReviewed', { slug: 'reviewed', rating: 1 });
+  const allResponse = await send('getAllPractice');
 
   assert.equal(response.success, true);
   assert.equal(storage.practiceLog.length, 1);
   assert.equal(storage.practiceLog[0].slug, 'new');
   assert.equal(storage.problems.reviewed.completedReviews.length, 1);
   assert.equal(storage.problems.reviewed.reviewHistory.at(-1).rating, 1);
+  assert.equal(allResponse.practiced.filter(entry => entry.type === 'review').length, 1);
+  assert.equal(allResponse.practiced.find(entry => entry.type === 'review').slug, 'reviewed');
 });
 
 test('legacy practice entries infer new status without counting an old review as new', async () => {
